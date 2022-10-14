@@ -135,6 +135,9 @@ public class NeoDen4Driver extends AbstractReferenceDriver {
     public int getYms() { return this.yMs; }
 
     private boolean motionPending;
+    
+    private boolean checkFeederMotion;
+    private int checkFeederId;
 
     private ReferenceActuator getOrCreateActuatorInHead(ReferenceHead head, String actuatorName) throws Exception {
         ReferenceActuator a = (ReferenceActuator) head.getActuatorByName(actuatorName);
@@ -348,6 +351,30 @@ public class NeoDen4Driver extends AbstractReferenceDriver {
         
         return response;
     }
+    
+    int pollForMasked(int command, int response, int mask) throws Exception {
+        return pollForMasked(command, response, mask, 500);
+    }
+
+    /**
+     * @param timeoutMs disabled if <=0 
+     */
+    int pollForMasked(int command, int response, int mask, int timeoutMs) throws Exception {
+        long start = System.currentTimeMillis();
+        do {
+            write(command);
+            
+            if(System.currentTimeMillis() - start > timeoutMs && timeoutMs > 0) {
+                throw new TimeoutException("Poll for mask timeout");
+            }
+            if(command == response) {
+                throw new TimeoutException("Poll for mask error");
+            }
+            
+        } while ((read() & mask) != response);
+        
+        return response;
+    }
 
     void putInt32(int value, byte[] buffer, int position) throws Exception {
         buffer[position + 0] = (byte) ((value >> 0) & 0xff);
@@ -501,6 +528,9 @@ public class NeoDen4Driver extends AbstractReferenceDriver {
         if (readyStatus == 0) {
             return true;
         }
+        else if (readyStatus > 2) {
+            Logger.warn(String.format("Status Ready: %d, possible homing issue", readyStatus));
+        }
 
         return false;
     }
@@ -608,6 +638,10 @@ public class NeoDen4Driver extends AbstractReferenceDriver {
         write(0x46+id);
         read();
         //pollFor(0x47, 0x42);
+        
+        checkFeederMotion = true;
+        checkFeederId = id;
+        
     }
 
     public void feed(int id, int strength, int feedRate) throws Exception {
@@ -882,6 +916,26 @@ public class NeoDen4Driver extends AbstractReferenceDriver {
             CompletionType completionType) throws Exception {
         // TODO implement
         motionPending = false;
+        
+        if(checkFeederMotion && checkFeederId != 0)
+        {
+            // This will check to make sure feeding is complete
+            Logger.debug(String.format("Checking feeder status %d", checkFeederId));
+            
+            byte[] b = new byte[8];
+            checkFeederMotion = false;
+            
+            do {
+                pollForMasked(0x40 | (20 + checkFeederId), 0x00, 0xf0);
+                pollForMasked(0x00 | (20 + checkFeederId), 0x10, 0xf0);
+                pollForMasked(0x80 | (20 + checkFeederId), 0x10, 0xf0);
+                
+                b = readWithChecksum(8);
+            } while (b[0] != 0x20); // TODO: This should have timeout, what about other values like 0x44 (stuck)
+            
+            checkFeederId = 0;
+        }
+        
     }
 
     @Override
