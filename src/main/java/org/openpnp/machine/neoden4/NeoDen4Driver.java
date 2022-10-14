@@ -138,6 +138,8 @@ public class NeoDen4Driver extends AbstractReferenceDriver {
     
     private boolean checkFeederMotion;
     private int checkFeederId;
+    
+    private long vibrationStopTime;
 
     private ReferenceActuator getOrCreateActuatorInHead(ReferenceHead head, String actuatorName) throws Exception {
         ReferenceActuator a = (ReferenceActuator) head.getActuatorByName(actuatorName);
@@ -217,6 +219,13 @@ public class NeoDen4Driver extends AbstractReferenceDriver {
         if (a == null) {
             a = new ReferenceActuator();
             a.setName("ReleaseC");
+            machine.addActuator(a);
+        }
+        
+        a = (ReferenceActuator) machine.getActuatorByName("Vibration");
+        if (a == null) {
+            a = new ReferenceActuator();
+            a.setName("Vibration");
             machine.addActuator(a);
         }
         
@@ -935,6 +944,18 @@ public class NeoDen4Driver extends AbstractReferenceDriver {
             
             checkFeederId = 0;
         }
+        else {
+            Logger.debug("waitForCompletion");
+        }
+        
+        if(vibrationStopTime != 0)
+        {
+            if(System.currentTimeMillis() >= vibrationStopTime)
+            {
+                vibrationStopTime = 0;
+                stopVibration();
+            }
+        }
         
     }
 
@@ -993,6 +1014,14 @@ public class NeoDen4Driver extends AbstractReferenceDriver {
             case "ReleaseC": {
                 actuate(actuator, 0.0);
             break;
+            }
+            case "Vibration": {
+            	if (on) {
+                    actuate(actuator, 1.0);
+                } else {
+                    actuate(actuator, 0.0);
+                }
+                break;
             }
         }
     }
@@ -1078,6 +1107,47 @@ public class NeoDen4Driver extends AbstractReferenceDriver {
         b[5] = (byte)0x00;
         b[6] = (byte)0x00;
         b[7] = (byte)0x00;
+        writeWithChecksum(b);
+        pollFor(0x06,  0x42);
+    }
+   
+    private void startVibration() throws Exception {
+        byte[] b = new byte[8];
+        write(0x46);
+        expect(0x0a);
+        write(0xc6);
+        expect(0x02);
+        b[0] = (byte)0x64;
+        b[1] = (byte)0x09;
+        b[2] = (byte)0x00;
+        b[3] = (byte)0xc8;
+        b[4] = (byte)0x00;
+        b[5] = (byte)0x1e;
+        b[6] = (byte)0x64;
+        b[7] = (byte)0x00;
+
+        writeWithChecksum(b);
+        pollFor(0x06,  0x42);
+        
+        vibrationStopTime = System.currentTimeMillis() + 2000; // Run vibration feeder for two seconds.
+    }
+    
+    private void stopVibration() throws Exception {
+        byte[] b = new byte[8];
+        write(0x46);
+        expect(0x0a);
+        write(0xc6);
+        expect(0x02);
+
+        b[0] = (byte)0x64;
+        b[1] = (byte)0x09;
+        b[2] = (byte)0x00;
+        b[3] = (byte)0xc8;
+        b[4] = (byte)0x00;
+        b[5] = (byte)0x00;
+        b[6] = (byte)0x64;
+        b[7] = (byte)0x00;
+
         writeWithChecksum(b);
         pollFor(0x06,  0x42);
     }
@@ -1186,6 +1256,14 @@ public class NeoDen4Driver extends AbstractReferenceDriver {
         }
         case "ReleaseC": {
         	releaseCMotors();
+        	break;
+        }
+        case "Vibration": {
+			if ((int)value > 0) {
+				startVibration();
+			} else {
+				stopVibration();
+			}
         	break;
         }
         }
