@@ -769,14 +769,16 @@ public class ReferenceNozzleTipCalibration extends AbstractModelObject {
                     misdetects++;
                     if (misdetects > this.allowMisdetections) {
                         throw new Exception(
-                                "Nozzle tip calibration: too many vision misdetects. Check pipeline and threshold.");
+                                "Nozzle tip calibration: too many vision misdetects. Check the allowable distance threshold and/or computer vision. "
+                                        + "Failure information can be found in the log.");
                     }
                 }
             }
 
             if (nozzleTipMeasuredLocations.size() < Math.max(3, angleSubdivisions + 1 - this.allowMisdetections)) {
                 throw new Exception(
-                        "Nozzle tip calibration: not enough results from vision. Check pipeline and threshold.");
+                        "Nozzle tip calibration: too many vision misdetects. Check the allowable distance threshold and/or computer vision. "
+                                + "Failure information can be found in the log.");
             }
 
             Configuration.get().getScripting().on("NozzleCalibration.Finished", params);
@@ -914,7 +916,7 @@ public class ReferenceNozzleTipCalibration extends AbstractModelObject {
 
     private Location findCircle(ReferenceNozzle nozzle, Location measureLocation, boolean calibrateCamera) throws Exception {
         Camera camera = VisionUtils.getBottomVisionCamera();
-        try (CvPipeline pipeline = getPipeline(camera, nozzle, measureLocation)) {
+        try (CvPipeline pipeline = getPreparedPipeline(camera, nozzle, measureLocation)) {
             
             pipeline.process();
             List<Location> locations = new ArrayList<>();
@@ -1656,7 +1658,7 @@ public class ReferenceNozzleTipCalibration extends AbstractModelObject {
         firePropertyChange("backgroundDiagnostics", oldValue, backgroundDiagnostics);
     }
 
-    public CvPipeline getPipeline(Camera camera, Nozzle nozzle, Location measureLocation) throws Exception {
+    public CvPipeline getPreparedPipeline(Camera camera, Nozzle nozzle, Location measureLocation) throws Exception {
         pipeline.setProperty("camera", camera);
         pipeline.setProperty("nozzleTip.diameter", getCalibrationTipDiameter());
         // Set the search tolerance to be somewhat larger than the threshold.
@@ -1664,6 +1666,10 @@ public class ReferenceNozzleTipCalibration extends AbstractModelObject {
         pipeline.setProperty("nozzleTip.center", measureLocation);
         Point maskCenter = VisionUtils.getLocationPixels(camera, measureLocation);
         pipeline.setProperty("MaskCircle.center", new org.opencv.core.Point(maskCenter.getX(), maskCenter.getY()));
+        return pipeline;
+    }
+
+    public CvPipeline getPipeline() {
         return pipeline;
     }
 

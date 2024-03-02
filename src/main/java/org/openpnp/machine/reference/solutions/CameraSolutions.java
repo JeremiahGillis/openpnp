@@ -39,10 +39,12 @@ import org.openpnp.machine.reference.camera.AbstractSettlingCamera.SettleMethod;
 import org.openpnp.machine.reference.camera.OpenPnpCaptureCamera;
 import org.openpnp.machine.reference.camera.OpenPnpCaptureCamera.CapturePropertyHolder;
 import org.openpnp.machine.reference.camera.ReferenceCamera;
+import org.openpnp.machine.reference.camera.SwitcherCamera;
 import org.openpnp.model.Configuration;
 import org.openpnp.model.LengthUnit;
 import org.openpnp.model.Location;
 import org.openpnp.model.Solutions;
+import org.openpnp.model.Solutions.Issue;
 import org.openpnp.model.Solutions.Milestone;
 import org.openpnp.model.Solutions.Severity;
 import org.openpnp.model.Solutions.State;
@@ -59,6 +61,9 @@ import org.pmw.tinylog.Logger;
 public class CameraSolutions implements Solutions.Subject  {
     ReferenceCamera camera;
 
+    final static long EXPOSURE_ADAPT_MILLISECONDS = 700;
+    final static int EXPOSURE_ADJUST_MAX_STEPS = 64;
+
     public CameraSolutions(ReferenceCamera camera) {
         this.camera = camera;
     }
@@ -68,6 +73,10 @@ public class CameraSolutions implements Solutions.Subject  {
         if (solutions.isTargeting(Milestone.Basics)) {
             ActuatorSolutions.findActuateIssues(solutions, camera, camera.getLightActuator(), "camera light",
                 "https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration%3A-Camera-Lighting");
+            if (camera instanceof SwitcherCamera) {
+                ActuatorSolutions.findActuateIssues(solutions, camera, ((SwitcherCamera)camera).getActuator(), "camera switcher",
+                    "https://github.com/openpnp/openpnp/wiki/SwitcherCamera#configuration");
+            }
         }
         if (solutions.isTargeting(Milestone.Vision)) {
             final double previewFps = camera.getPreviewFps();
@@ -77,7 +86,7 @@ public class CameraSolutions implements Solutions.Subject  {
                         "A high Preview FPS value might create undue CPU load.", 
                         "Set to 5 FPS.", 
                         Severity.Suggestion,
-                        "https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration:-General-Camera-Setup#general-configuration") {
+                        "https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration_General-Camera-Setup#general-configuration") {
 
 
                     @Override
@@ -90,10 +99,11 @@ public class CameraSolutions implements Solutions.Subject  {
             if (! camera.isSuspendPreviewInTasks()) {
                 solutions.add(new Solutions.Issue(
                         camera, 
-                        "It is recommended to suspend camera preview during machine tasks / Jobs.", 
+                        ((camera instanceof SwitcherCamera) ? "For a SwitcherCamera it is mandatory" : "It is recommended")
+                        +" to suspend camera preview during machine tasks / Jobs.", 
                         "Enable Suspend during tasks.", 
-                        Severity.Suggestion,
-                        "https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration:-General-Camera-Setup#general-configuration") {
+                        ((camera instanceof SwitcherCamera) ? Severity.Error : Severity.Suggestion),
+                        "https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration_General-Camera-Setup#general-configuration") {
 
                     @Override
                     public void setState(Solutions.State state) throws Exception {
@@ -108,7 +118,7 @@ public class CameraSolutions implements Solutions.Subject  {
                         "In single camera preview OpenPnP can automatically switch the camera for you.", 
                         "Enable Auto Camera View.", 
                         Severity.Suggestion,
-                        "https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration:-General-Camera-Setup#general-configuration") {
+                        "https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration_General-Camera-Setup#general-configuration") {
 
                     @Override
                     public void setState(Solutions.State state) throws Exception {
@@ -127,7 +137,7 @@ public class CameraSolutions implements Solutions.Subject  {
                             "The preview rendering quality can be improved.", 
                             "Set to Rendering Quality to High (right click the Camera View to see other options).", 
                             Severity.Suggestion,
-                            "https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration:-General-Camera-Setup#camera-view-configuration") {
+                            "https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration_General-Camera-Setup#camera-view-configuration") {
 
                         @Override
                         public void setState(Solutions.State state) throws Exception {
@@ -266,12 +276,13 @@ public class CameraSolutions implements Solutions.Subject  {
                 final CapturePropertyHolder exposureProperty = pnpCamera.getExposure();
                 propertiesOK = addCapturePropertyAutoSolution(solutions, 
                         "exposure", exposureProperty, 
-                        "set to a static exposure. The camera should look at a representative, rather bright subject when you press Accept",
+                        "set to a static exposure value that will be calibrated with this solution. "
+                        + "The camera should look at a representative, rather bright subject when you press Accept",
                         (Solutions.Issue issue) -> {
-                            final long adaptMilliseconds = 700;
                             final State oldState = issue.getState();
                             UiUtils.submitUiMachineTask(() -> {
-                                setStaticExposure(pnpCamera, exposureProperty, adaptMilliseconds);
+                                setStaticExposure(pnpCamera, exposureProperty, 
+                                        EXPOSURE_ADAPT_MILLISECONDS, EXPOSURE_ADJUST_MAX_STEPS);
                                 return true;
                             },
                                     (result) -> {
@@ -362,7 +373,7 @@ public class CameraSolutions implements Solutions.Subject  {
     }
 
     protected void setStaticExposure(OpenPnpCaptureCamera camera,
-            final CapturePropertyHolder exposureProperty, final long adaptMilliseconds)
+            final CapturePropertyHolder exposureProperty, final long adaptMilliseconds, int maxSteps)
             throws Exception, InterruptedException {
         CameraView cameraView = MainFrame.get().getCameraViews().ensureCameraVisible(camera); 
         // Capture a reference image.
@@ -378,13 +389,17 @@ public class CameraSolutions implements Solutions.Subject  {
         Thread.sleep(adaptMilliseconds); // sleep more for initial auto exposure
         int bestValue = exposureProperty.getDefault();
         long bestDiff = Long.MAX_VALUE;
-        for (int value = exposureProperty.getMin(); 
-                value <=  exposureProperty.getMax();
-                value++) {
+        int expMin = exposureProperty.getMin();
+        int expMax = exposureProperty.getMax();
+        int steps = Math.min(maxSteps - 1, expMax - expMin);
+        for (int step = 0;
+                step <= steps;
+                step++) {
+            int value = expMin + step*(expMax - expMin)/steps;
             exposureProperty.setValue(value);
             Thread.sleep(adaptMilliseconds);
             BufferedImage frame = camera.lightSettleAndCapture();
-            final String msg = "Exposure "+value;
+            final String msg = "Exposure "+value+" (probe "+(step+1)+"/"+(steps+1)+")";
             SwingUtilities.invokeLater(() -> cameraView.showFilteredImage(frame, msg, adaptMilliseconds*2));
             long [][] histogram = VisionUtils.computeImageHistogramHsv(frame);
             long diff = 0;
@@ -400,7 +415,7 @@ public class CameraSolutions implements Solutions.Subject  {
         Thread.sleep(adaptMilliseconds);
         BufferedImage frame1 = camera.lightSettleAndCapture();
         final String msg = "Exposure "+bestValue+" (set)";
-        SwingUtilities.invokeLater(() -> cameraView.showFilteredImage(frame1, msg, adaptMilliseconds*2));
+        SwingUtilities.invokeLater(() -> cameraView.showFilteredImage(frame1, msg, 4000));
     }
 
     protected boolean addCapturePropertyAutoSolution(Solutions solutions, 
@@ -425,13 +440,14 @@ public class CameraSolutions implements Solutions.Subject  {
 
                 @Override
                 public void setState(Solutions.State state) throws Exception {
+                    Function<Issue, Boolean> valueSetterToApply = null;
                     if (state == Solutions.State.Solved) {
                         if (valueSetter == null) {
                             property.setAuto(false);
                             property.setValue(property.getDefault());
                         }
                         else {
-                            valueSetter.apply(this);
+                            valueSetterToApply = valueSetter;
                         }
                     }
                     else {
@@ -440,6 +456,11 @@ public class CameraSolutions implements Solutions.Subject  {
                     }
                     camera.lightSettleAndCapture();
                     camera.ensureCameraVisible();
+                    if (valueSetterToApply != null) {
+                        // Call the value setter as the last thing, as it might spawn a machine task 
+                        // and we need to avoid threading conflicts on camera light or switcher actuators.
+                        valueSetterToApply.apply(this);
+                    }
                     super.setState(state);
                 }
             });
@@ -453,7 +474,7 @@ public class CameraSolutions implements Solutions.Subject  {
             String valueName, Integer suggestedValue, 
             String uri) {
         final int wantedValue = (suggestedValue != null ? suggestedValue : property.getDefault());
-        if (property.getValue() != wantedValue) {
+        if (property.getValue() != wantedValue || property.isAuto()) {
             final boolean oldAuto = property.isAuto();
             final int oldValue = property.getValue();
             solutions.add(new Solutions.Issue(

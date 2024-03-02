@@ -29,7 +29,6 @@ import java.awt.event.ActionEvent;
 import java.beans.PropertyChangeListener;
 import java.util.HashMap;
 import java.util.Hashtable;
-import java.util.List;
 import java.util.Map;
 
 import javax.swing.AbstractAction;
@@ -49,7 +48,6 @@ import org.openpnp.ConfigurationListener;
 import org.openpnp.Translations;
 import org.openpnp.gui.support.Icons;
 import org.openpnp.gui.support.WrapLayout;
-import org.openpnp.model.BoardLocation;
 import org.openpnp.model.Configuration;
 import org.openpnp.model.Length;
 import org.openpnp.model.LengthUnit;
@@ -85,7 +83,7 @@ public class JogControlsPanel extends JPanel {
     private final Configuration configuration;
     private JPanel panelActuators;
     private JSlider sliderIncrements;
-    private JCheckBox boardProtectionOverrideCheck;
+    private JCheckBox boardProtectionCheck;
 
     /**
      * Create the panel.
@@ -159,8 +157,8 @@ public class JogControlsPanel extends JPanel {
         }
     }
 
-    public boolean getBoardProtectionOverrideEnabled() {
-        return boardProtectionOverrideCheck.isSelected();
+    public boolean isBoardProtectionEnabled() {
+        return boardProtectionCheck.isSelected();
     }
 
     private void jog(final int x, final int y, final int z, final int c) {
@@ -212,59 +210,12 @@ public class JogControlsPanel extends JPanel {
         }
 
         Location targetLocation = new Location(l.getUnits(), xPos, yPos, zPos, cPos);
-        if (!this.getBoardProtectionOverrideEnabled()) {
-            /* check board location before movement */
-            List<BoardLocation> boardLocations = machineControlsPanel.getJobPanel()
-                    .getJob()
-                    .getBoardLocations();
-            for (BoardLocation boardLocation : boardLocations) {
-                if (!boardLocation.isEnabled()) {
-                    continue;
-                }
-                boolean safe = nozzleLocationIsSafe(boardLocation.getLocation(),
-                        boardLocation.getBoard()
-                        .getDimensions(),
-                        targetLocation, new Length(1.0, l.getUnits()));
-                if (!safe) {
-                    throw new Exception(
-                            "Nozzle would crash into board: " + boardLocation.toString() + "\n" + //$NON-NLS-1$ //$NON-NLS-2$
-                            "To disable the board protection go to the \"Safety\" tab in the \"Machine Controls\" panel."); //$NON-NLS-1$
-                }
-            }
-        }
+
+        machineControlsPanel.checkJogMotionSafety(tool, targetLocation);
 
         tool.moveTo(targetLocation, MotionOption.JogMotion); 
 
         MovableUtils.fireTargetedUserAction(tool, true);
-    }
-
-    private boolean nozzleLocationIsSafe(Location origin, Location dimension, Location nozzle,
-            Length safeDistance) {
-        double distance = safeDistance.convertToUnits(nozzle.getUnits())
-                .getValue();
-        Location originConverted = origin.convertToUnits(nozzle.getUnits());
-        Location dimensionConverted = dimension.convertToUnits(dimension.getUnits());
-        double boardUpperZ = originConverted.getZ();
-        boolean containsXY = pointWithinRectangle(originConverted, dimensionConverted, nozzle);
-        boolean containsZ = nozzle.getZ() <= (boardUpperZ + distance);
-        return !(containsXY && containsZ);
-    }
-
-    private boolean pointWithinRectangle(Location origin, Location dimension, Location point) {
-        double rotation = Math.toRadians(origin.getRotation());
-        double ay = origin.getY() + Math.sin(rotation) * dimension.getX();
-        double ax = origin.getX() + Math.cos(rotation) * dimension.getX();
-        Location a = new Location(dimension.getUnits(), ax, ay, 0.0, 0.0);
-
-        double cx = origin.getX() - Math.cos(Math.PI / 2 - rotation) * dimension.getY();
-        double cy = origin.getY() + Math.sin(Math.PI / 2 - rotation) * dimension.getY();
-        Location c = new Location(dimension.getUnits(), cx, cy, 0.0, 0.0);
-
-        double bx = ax + cx - origin.getX();
-        double by = ay + cy - origin.getY();
-        Location b = new Location(dimension.getUnits(), bx, by, 0.0, 0.0);
-
-        return pointWithinTriangle(origin, b, a, point) || pointWithinTriangle(origin, c, b, point);
     }
 
     private boolean pointWithinTriangle(Location p1, Location p2, Location p3, Location p) {
@@ -291,7 +242,9 @@ public class JogControlsPanel extends JPanel {
         add(tabbedPane_1);
 
         JPanel panelControls = new JPanel();
-        tabbedPane_1.addTab("Jog", null, panelControls, null); //$NON-NLS-1$
+        //tabbedPane_1.addTab("Jog", null, panelControls, null); //$NON-NLS-1$
+        tabbedPane_1.addTab(Translations.getString("JogControlsPanel.Tab.Jog"), //$NON-NLS-1$
+                null, panelControls, null);
         panelControls.setLayout(new FormLayout(
                 new ColumnSpec[] {FormSpecs.RELATED_GAP_COLSPEC, FormSpecs.DEFAULT_COLSPEC,
                         FormSpecs.RELATED_GAP_COLSPEC, FormSpecs.DEFAULT_COLSPEC,
@@ -318,7 +271,7 @@ public class JogControlsPanel extends JPanel {
         // so the dialog looks right while editing.
         homeButton.setIcon(Icons.home);
         homeButton.setHideActionText(true);
-        homeButton.setToolTipText(Translations.getString("JogControlsPanel.homeButton.toolTipText")); //$NON-NLS-1$ //$NON-NLS-1$
+        homeButton.setToolTipText(Translations.getString("JogControlsPanel.homeButton.toolTipText")); //$NON-NLS-1$ //$NON-NLS-2$
         panelControls.add(homeButton, "2, 2"); //$NON-NLS-1$
 
         JLabel lblXy = new JLabel("X/Y"); //$NON-NLS-1$
@@ -367,18 +320,30 @@ public class JogControlsPanel extends JPanel {
         speedSlider.setOrientation(SwingConstants.VERTICAL);
         panelControls.add(speedSlider, "20, 4, 1, 9"); //$NON-NLS-1$
         speedSlider.addChangeListener(new ChangeListener() {
+            int oldValue = 100;
             @Override
             public void stateChanged(ChangeEvent e) {
-                Configuration.get()
-                .getMachine()
-                .setSpeed(speedSlider.getValue() * 0.01);
+                Machine machine = Configuration.get().getMachine();
+                int minSpeedSlider = (int) Math.ceil(machine.getMotionPlanner().getMinimumSpeed()*100);
+                if (speedSlider.getValue() > 0 && speedSlider.getValue() < minSpeedSlider) {
+                    if (oldValue > speedSlider.getValue()) {
+                        // Snap to zero.
+                        speedSlider.setValue(0);
+                    }
+                    else {
+                        // Snap to minium.
+                        speedSlider.setValue(minSpeedSlider);
+                    }
+                }
+                oldValue = speedSlider.getValue();
+                machine.setSpeed(speedSlider.getValue() * 0.01);
             }
         });
 
         JButton positionNozzleBtn = new JButton(machineControlsPanel.targetToolAction);
         positionNozzleBtn.setIcon(Icons.centerTool);
         positionNozzleBtn.setHideActionText(true);
-        positionNozzleBtn.setToolTipText(Translations.getString("JogControlsPanel.Action.positionSelectedNozzle"));
+        positionNozzleBtn.setToolTipText(Translations.getString("JogControlsPanel.Action.positionSelectedNozzle")); //$NON-NLS-1$
         panelControls.add(positionNozzleBtn, "22, 4"); //$NON-NLS-1$
 
         JButton buttonStartStop = new JButton(machineControlsPanel.startStopMachineAction);
@@ -413,7 +378,7 @@ public class JogControlsPanel extends JPanel {
         JButton positionCameraBtn = new JButton(machineControlsPanel.targetCameraAction);
         positionCameraBtn.setIcon(Icons.centerCamera);
         positionCameraBtn.setHideActionText(true);
-        positionCameraBtn.setToolTipText(Translations.getString("JogControlsPanel.Action.positionCamera"));
+        positionCameraBtn.setToolTipText(Translations.getString("JogControlsPanel.Action.positionCamera")); //$NON-NLS-1$
         panelControls.add(positionCameraBtn, "22, 8"); //$NON-NLS-1$
 
         JLabel lblC = new JLabel("C"); //$NON-NLS-1$
@@ -451,16 +416,21 @@ public class JogControlsPanel extends JPanel {
         panelSpecial.add(btnRecycle);
 
         panelActuators = new JPanel();
-        tabbedPane_1.addTab(Translations.getString("JogControlsPanel.Tab.Actuators"), null, panelActuators, null); //$NON-NLS-1$
+        tabbedPane_1.addTab(Translations.getString("JogControlsPanel.Tab.Actuators"), //$NON-NLS-1$
+                null, panelActuators, null);
         panelActuators.setLayout(new WrapLayout(WrapLayout.LEFT));
 
         JPanel panelSafety = new JPanel();
-        tabbedPane_1.addTab(Translations.getString("JogControlsPanel.Tab.Safety"), null, panelSafety, null); //$NON-NLS-1$
+        tabbedPane_1.addTab(Translations.getString("JogControlsPanel.Tab.Safety"), //$NON-NLS-1$
+                null, panelSafety, null);
         panelSafety.setLayout(new FlowLayout(FlowLayout.LEFT, 5, 5));
 
-        boardProtectionOverrideCheck = new JCheckBox(Translations.getString("JogControlsPanel.Label.OverrideBoardProtection")); //$NON-NLS-1$
-        boardProtectionOverrideCheck.setToolTipText(Translations.getString("JogControlsPanel.Label.OverrideBoardProtection.Description")); //$NON-NLS-1$
-        panelSafety.add(boardProtectionOverrideCheck, "1, 1"); //$NON-NLS-1$
+        boardProtectionCheck = new JCheckBox(
+                Translations.getString("JogControlsPanel.Label.BoardProtection")); //$NON-NLS-1$
+        boardProtectionCheck.setSelected(true);
+        boardProtectionCheck.setToolTipText(
+                Translations.getString("JogControlsPanel.Label.BoardProtection.Description")); //$NON-NLS-1$
+        panelSafety.add(boardProtectionCheck, "1, 1"); //$NON-NLS-1$
     }
 
     private FocusTraversalPolicy focusPolicy = new FocusTraversalPolicy() {

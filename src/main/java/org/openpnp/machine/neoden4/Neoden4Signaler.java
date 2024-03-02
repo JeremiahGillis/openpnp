@@ -2,13 +2,13 @@ package org.openpnp.machine.neoden4;
 
 import javax.swing.SwingUtilities;
 
+import org.openpnp.Translations;
 import org.openpnp.gui.support.MessageBoxes;
 import org.openpnp.gui.support.Wizard;
 import org.openpnp.machine.neoden4.wizards.Neoden4SignalerConfigurationWizard;
 import org.openpnp.model.Configuration;
 import org.openpnp.spi.Driver;
 import org.openpnp.spi.base.AbstractJobProcessor;
-import org.openpnp.spi.base.AbstractMachine;
 import org.openpnp.spi.base.AbstractSignaler;
 import org.pmw.tinylog.Logger;
 import org.simpleframework.xml.Attribute;
@@ -20,8 +20,6 @@ public class Neoden4Signaler extends AbstractSignaler implements Runnable {
 
     @Attribute
     protected boolean enableFinishedSound;
-
-    private ClassLoader classLoader = getClass().getClassLoader();
 
 	private boolean playError = false;
 	private boolean playSuccess = false;
@@ -49,7 +47,8 @@ public class Neoden4Signaler extends AbstractSignaler implements Runnable {
 
 						SwingUtilities.invokeLater(new Runnable() {
 							public void run() {
-								MessageBoxes.infoBox("Click ok to confirm", "Job error!");
+								MessageBoxes.infoBox(Translations.getString("CommonPhrases.clickOkToConfirm"), //$NON-NLS-1$
+										Translations.getString("CommonPhrases.jobError")); //$NON-NLS-1$
 								playError = false;
 								lastPlayError = false;
 							}
@@ -67,7 +66,8 @@ public class Neoden4Signaler extends AbstractSignaler implements Runnable {
 
 						SwingUtilities.invokeLater(new Runnable() {
 							public void run() {
-								MessageBoxes.infoBox("Click ok to confirm", "Job success!");
+								MessageBoxes.infoBox(Translations.getString("CommonPhrases.clickOkToConfirm"), //$NON-NLS-1$
+										Translations.getString("CommonPhrases.jobSuccess")); //$NON-NLS-1$
 								playSuccess = false;
 								lastPlaySuccess = false;
 							}
@@ -109,16 +109,7 @@ public class Neoden4Signaler extends AbstractSignaler implements Runnable {
 		}
 	}
 
-    @Override
-    public void signalMachineState(AbstractMachine.State state) {
-        switch (state) {
-            case ERROR: {
-                playError = true;
-                break;
-            }
-        }
-    }
-
+    @SuppressWarnings("incomplete-switch")
     @Override
     public void signalJobProcessorState(AbstractJobProcessor.State state) {
         switch (state) {

@@ -402,10 +402,11 @@ public class CalibrationSolutions implements Solutions.Subject {
                                     + "<table>"
                                     + "<tr><td align=\"right\">Detected Nozzle Head Offsets:</td>"
                                     + "<td>"+nozzle.getHeadOffsets()+"</td></tr>"
-                                    + "<tr><td align=\"right\">Previous Nozzle Head Offsets:</td>"
-                                    + "<td>"+oldNozzleOffsets+"</td></tr>"
-                                    + "<tr><td align=\"right\">Difference:</td>"
-                                    + "<td>"+nozzle.getHeadOffsets().subtract(oldNozzleOffsets)+"</td></tr>"
+                                    + (oldNozzleOffsets == null ? "" : 
+                                        "<tr><td align=\"right\">Previous Nozzle Head Offsets:</td>"
+                                        + "<td>"+oldNozzleOffsets+"</td></tr>"
+                                        + "<tr><td align=\"right\">Difference:</td>"
+                                        + "<td>"+nozzle.getHeadOffsets().subtract(oldNozzleOffsets)+"</td></tr>")
                                     + "</table>" 
                                     : "")
                             + "</html>";
@@ -1267,6 +1268,11 @@ public class CalibrationSolutions implements Solutions.Subject {
                                 testPatternImagePointsList, size, mirrored,
                                 apparentMotionDirection);
 
+                        if (advCal.getPrimaryLocation() != null) {
+                            //Do this here rather than in advCal.applyCalibrationToMachine so that
+                            //when calibrating manually, a different defaultZ can be used if desired
+                            camera.setDefaultZ(advCal.getPrimaryLocation().getLengthZ());
+                        }
                         advCal.applyCalibrationToMachine(head, camera);
 
                         // Tidy up.

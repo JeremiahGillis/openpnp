@@ -21,8 +21,14 @@ package org.openpnp.machine.reference.driver;
 
 import java.io.IOException;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import org.jfree.chart.util.ArrayUtils;
+import org.openpnp.model.Named;
+import org.openpnp.util.Collect;
 import org.openpnp.util.GcodeServer;
+import org.pmw.tinylog.Logger;
 import org.simpleframework.xml.Attribute;
 
 /**
@@ -51,9 +57,17 @@ public abstract class ReferenceDriverCommunications {
     @Attribute(required=false)
     protected LineEndingType lineEndingType = LineEndingType.LF;
 
+    protected String driverName;
+
     abstract public void connect() throws Exception;
     abstract public void disconnect() throws Exception;
 
+    /**
+     * Set the driver name, so the connection can be easily associated with the driver.
+     */
+    public void setDriverName(String driverName) {
+        this.driverName = driverName;
+    }
     abstract public String getConnectionName();
 
     abstract protected void writeBytes(byte[] data) throws IOException;
@@ -73,8 +87,8 @@ public abstract class ReferenceDriverCommunications {
     }
 
     public void writeLine(String data) throws IOException {
-        writeBytes(data.getBytes());
-        writeBytes(getLineEndingType().getLineEnding().getBytes());
+        byte [] line = Collect.concat(data.getBytes(), getLineEndingType().getLineEnding().getBytes());
+        writeBytes(line);
     }
 
     /**
@@ -89,7 +103,14 @@ public abstract class ReferenceDriverCommunications {
     protected String readUntil(String characters) throws TimeoutException, IOException {
         StringBuffer line = new StringBuffer();
         while (true) {
-            int ch = read();
+            int ch = -1;
+            try {
+                ch = read();
+            }
+            catch (TimeoutException e) {
+                // In case an implementation has a read timeout, we must not stop reading.
+                continue;
+            }
             if (ch == -1) {
                 return null;
             }

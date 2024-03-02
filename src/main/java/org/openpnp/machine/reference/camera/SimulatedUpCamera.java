@@ -13,6 +13,7 @@ import java.awt.image.ConvolveOp;
 import java.awt.image.Kernel;
 import java.util.ConcurrentModificationException;
 
+import org.openpnp.Translations;
 import org.openpnp.gui.support.Wizard;
 import org.openpnp.machine.reference.SimulationModeMachine;
 import org.openpnp.machine.reference.camera.wizards.SimulatedUpCameraConfigurationWizard;
@@ -66,6 +67,29 @@ public class SimulatedUpCamera extends ReferenceCamera {
     @Element(required = false)
     private Length sensorDiagonal = new Length(4.4, LengthUnit.Millimeters);
 
+    public enum BackgroundScenario {
+        Black(0x000000, 0x00FF00),
+        Dark(0x222222, 0x00DD00),
+        Green(0x22AA22, 0x00DD00),
+        Magenta(0xAA22AA, 0x444444);
+
+        final private int rgb;
+        final private int rgbNozzleTip;
+        BackgroundScenario(int rgb, int rgbNozzleTip) {
+            this.rgb = rgb;
+            this.rgbNozzleTip = rgbNozzleTip;
+        }
+        public Color getShadeColor() {
+            return new Color(rgb);
+        }
+        Color getNozzleTipColor() {
+            return new Color(rgbNozzleTip);
+        }
+    }
+
+    @Attribute(required=false)
+    protected BackgroundScenario backgroundScenario = BackgroundScenario.Dark;
+
     public SimulatedUpCamera() {
         setUnitsPerPixel(new Location(LengthUnit.Millimeters, 0.0234375D, 0.0234375D, 0, 0));
         setLooking(Looking.Up);
@@ -78,7 +102,7 @@ public class SimulatedUpCamera extends ReferenceCamera {
         }
         BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = (Graphics2D) image.getGraphics();
-        g.setColor(new Color(32, 32, 32));
+        g.setColor(getBackgroundScenario().getShadeColor());
         g.fillRect(0, 0, width, height);
         AffineTransform tx = g.getTransform();
         // invert the image in Y so that Y+ is up
@@ -132,13 +156,15 @@ public class SimulatedUpCamera extends ReferenceCamera {
 
     private void drawNozzle(Graphics2D gView, Nozzle nozzle, Location l) {
         BufferedImage frame;
-        Graphics2D g; 
+        Graphics2D g;
+        Color bg = getBackgroundScenario().getShadeColor();
+        bg = new Color(bg.getRed(), bg.getGreen(), bg.getBlue(), 0);
         if (isSimulateFocalBlur()) {
-            frame = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+            frame = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB_PRE);
             g = frame.createGraphics();
             g.setTransform(gView.getTransform());
             // Clear with transparent background
-            g.setBackground(new Color(0, 0, 0, 0));
+            g.setBackground(bg);
             g.clearRect(-width/2, -height/2, width, height);
         }
         else {
@@ -152,20 +178,18 @@ public class SimulatedUpCamera extends ReferenceCamera {
         LengthUnit units = LengthUnit.Millimeters;
         Location unitsPerPixel = getSimulatedUnitsPerPixel().convertToUnits(units);
 
-        boolean hasDrawn;
-
         // Draw the nozzle
         // Get nozzle offsets from camera
         Location offsets = l.subtractWithRotation(getSimulatedLocation());
 
         // Create a nozzle shape
-        if (fillShape(g, new Ellipse2D.Double(-0.5, -0.5, 1, 1), new Color(0, 220, 0), unitsPerPixel, offsets, false)) {
+        if (fillShape(g, new Ellipse2D.Double(-0.5, -0.5, 1, 1), getBackgroundScenario().getNozzleTipColor(), unitsPerPixel, offsets, false)) {
             fillShape(g, new Ellipse2D.Double(-0.1, -0.1, 0.2, 0.2), new Color(32, 32, 32), unitsPerPixel, offsets, false);
             if (frame != null) {
                 blurObjectIntoView(gView, frame, nozzle, l);
 
                 // Clear with transparent background
-                g.setBackground(new Color(0, 0, 0, 0));
+                g.setBackground(bg);
                 g.clearRect(-width/2, -height/2, width, height);
             }
 
@@ -181,9 +205,9 @@ public class SimulatedUpCamera extends ReferenceCamera {
                 return;
             }
 
-            if (footprint.getUnits() != units) {
-                throw new Error("Not yet supported.");
-            }
+            Length u = new Length(1, footprint.getUnits())
+                    .convertToUnits(unitsPerPixel.getUnits());
+            double unitScale = u.getValue();
 
             // Account for the part height.
             double partHeightMm = Math.abs(part.getHeight().convertToUnits(LengthUnit.Millimeters).getValue());
@@ -195,11 +219,19 @@ public class SimulatedUpCamera extends ReferenceCamera {
                     0, 0, partHeightMm, 0));
             offsets = partUndersideLocation.subtractWithRotation(getSimulatedLocation());
 
+            // Transform footprint shapes to right-hand coordinate system.
+            Shape bodyShape = footprint.getBodyShape();
+            Shape padsShape = footprint.getPadsShape();
+            AffineTransform txShape = new AffineTransform();
+            txShape.scale(unitScale, unitScale);
+            padsShape = txShape.createTransformedShape(padsShape);
+            bodyShape = txShape.createTransformedShape(bodyShape);
+
             // First draw the body in dark grey.
-            fillShape(g, footprint.getBodyShape(), new Color(60, 60, 60), unitsPerPixel, offsets, true);
+            fillShape(g, bodyShape, new Color(60, 60, 60), unitsPerPixel, offsets, true);
 
             // Then draw the pads in white
-            fillShape(g, footprint.getPadsShape(), Color.white, unitsPerPixel, offsets, true);
+            fillShape(g, padsShape, Color.white, unitsPerPixel, offsets, true);
 
             if (frame != null) {
                 blurObjectIntoView(gView, frame, nozzle, 
@@ -367,6 +399,14 @@ public class SimulatedUpCamera extends ReferenceCamera {
         this.errorOffsets = errorOffsets;
     }
 
+    public BackgroundScenario getBackgroundScenario() {
+        return backgroundScenario;
+    }
+
+    public void setBackgroundScenario(BackgroundScenario backgroundScenario) {
+        this.backgroundScenario = backgroundScenario;
+    }
+
     @Override
     public Wizard getConfigurationWizard() {
         return new SimulatedUpCameraConfigurationWizard(this);
@@ -388,9 +428,9 @@ public class SimulatedUpCamera extends ReferenceCamera {
         super.findIssues(solutions);
         if (solutions.isTargeting(Milestone.Connect)) {
             solutions.add(new Solutions.Issue(
-                    this, 
-                    "The SimulatedUpCamera can be replaced with a OpenPnpCaptureCamera to connect to a real USB camera.", 
-                    "Replace with OpenPnpCaptureCamera.", 
+                    this,
+                    Translations.getString("SimulatedUpCamera.Issue"), //$NON-NLS-1$
+                    Translations.getString("SimulatedUpCamera.Solution"), //$NON-NLS-1$
                     Severity.Fundamental,
                     "https://github.com/openpnp/openpnp/wiki/OpenPnpCaptureCamera") {
 

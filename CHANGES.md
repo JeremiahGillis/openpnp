@@ -1,6 +1,100 @@
 This file lists major or notable changes to OpenPnP in chronological order. This is not
 a complete change list, only those that may directly interest or affect users.
 
+# 2023-05-03
+
+Removed state from AbstractMachine. This might cause problems loading machine.xml in
+the unlikely event that you configured a ActuatorSignaler with a non empty machine state.
+To fix this, either remove the binding to machine state be setting it to empty before 
+the upgrade or remove "MachineState" manually from the signalers section of your machine.xml.
+
+Behaviour of ActuatorSignaler changed to only call the actuator if the job state has changed.
+
+# 2023-05-02
+
+Named CSV importer renamed to Reference CSV importer
+
+Altium CSV importer added which accepts the default center-x/center-y columns and
+correctly handles the rotation of bottom side parts.
+
+# 2023-03-14
+
+## Java 17+ Support
+
+OpenPnP is now compatible with Java versions 11, 17, and 19. Thank you to @lags
+and others! See the PR at https://github.com/openpnp/openpnp/pull/1493 for more
+details.
+
+Other versions of Java are no longer explicity supported or tested but they may
+still work. In general, any version 11+ should work.
+
+The installers now include a current version of OpenJDK 17, rather than a very
+out of date JDK 8.
+
+## MacOS Silicon Support and Fixes
+
+OpenPnP now supports Apple Silicon natively, including in openpnp-capture and
+openpnp-opencv.
+
+OpenPnP Capture Camera is now fixed on MacOS and should work correctly on both
+x86 and Apple Silicon.
+
+This version of OpenPnP changes from a installer to a single app archive.
+You can install it by dragging the app to your /Applications folder.
+
+The application and supporting files are now Code Signed so that they should
+run without having to disable security.
+
+# 2023-02-14
+
+## Panelization and other UI changes/improvements
+
+Panels are now stand-alone entities much like boards. They are now stored in *.panel.xml files
+rather than being "built-into" the job file. Panels can now have arbitrary layouts and can consist
+of any number of different boards and/or subpanels. Many of the issues issues that have been
+reported with the legacy panelization method have been fixed.
+
+Two new tabs have been added to the UI. The Panels tab is the primary area for creating and editing
+panels. The Boards tab is now the primary areas for creating and editing boards. The Job tab is now
+primarily for selecting boards and/or panels (defined on the aforementioned tabs) to be assembled, 
+setting their location and orientation on the machine and, of course, executing the job.
+
+There is now a button on the Job tab (the Panels and Boards tabs have one as well) that opens a 
+graphical viewer that displays the physical layout of the job (or Panel or Board).
+
+The column widths on the Job, Panels, and Boards tabs are now remembered between OpenPnP sessions.
+Numeric columns on those tabs are also now aligned on their decimal points. 
+
+See also:
+https://github.com/openpnp/openpnp/pull/1507
+
+# 2022-12-02
+
+## UI translation improvements
+
+User interface (UI) text strings were externalized in most parts of OpenPnP to be translated
+to other languages. Russian language translations were provided. Thanks to VSSavin.
+
+Users/translators are invited to contribute translate in their language. :-D
+
+See also:
+https://github.com/openpnp/openpnp/wiki/Getting-Started-with-Eclipse#translations-in-eclipse
+
+# 2022-07-12
+
+## Vision Compositing - Multi-Shot Bottom Vision
+
+Adds Vision Compositing, i.e. multi-shot bottom vision, where multiple corners of a part can
+be aligned individually and then combined into the whole-part alignment. Features:
+
+- Align packages that are larger than the camera view.
+- Align packages that are not rectangular in their hull shape.
+- Align on corners facing inwards.
+- Improve accuracy by detecting in the camera center, avoiding optical errors.
+
+See also:
+https://github.com/openpnp/openpnp/wiki/Vision-Compositing
+
 # 2022-06-10
 
 ## ReferenceStripFeeder Rotation in Tape
@@ -11,6 +105,7 @@ in tape is determined from that baseline. This was already the case for other fe
 
 Formerly, ReferenceStripFeeder had the tape 0° orientation with the sprocket holes on the
 left. The Wiki documentation, reflecting the EIA-481 industry standard was actually wrong.
+Existing feeders are automatically updated to the new orientation.
 
 See also:
 https://github.com/openpnp/openpnp/wiki/ReferenceStripFeeder#rotation-in-tape

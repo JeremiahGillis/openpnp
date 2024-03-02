@@ -29,6 +29,7 @@ import java.util.Map.Entry;
 import java.util.TreeSet;
 
 import org.opencv.core.RotatedRect;
+import org.openpnp.gui.support.LengthConverter;
 import org.openpnp.model.Footprint.Pad;
 import org.openpnp.spi.Camera;
 import org.openpnp.spi.Nozzle;
@@ -48,11 +49,20 @@ public class VisionCompositing extends AbstractModelObject{
     public enum CompositingMethod {
         None,
         Restricted,
+        Body,
         Automatic,
         SingleCorners;
 
         public boolean isEnforced() {
-            return this == Automatic || this == SingleCorners;
+            return this == Body || this == Automatic || this == SingleCorners;
+        }
+
+        boolean isBody() {
+            return this == Body;
+        }
+
+        boolean isSingleCorners() {
+            return this == CompositingMethod.SingleCorners;
         }
     }
 
@@ -75,7 +85,7 @@ public class VisionCompositing extends AbstractModelObject{
             return ordinal() < Small.ordinal();
         }
         public boolean isInvalid() {
-            return ordinal() >= NoCameraRoaming.ordinal();
+            return ordinal() >= VisionOffsets.ordinal();
         }
     }
 
@@ -672,6 +682,7 @@ public class VisionCompositing extends AbstractModelObject{
         private ArrayList<Footprint.Pad> rectifiedPads;
         private int outOfRoamingCandidates;
         private double computeTime;
+        private String diagnostics = "";
 
         public Composite(org.openpnp.model.Package pkg, BottomVisionSettings visionSettings,
                 Nozzle nozzle, NozzleTip nozzleTip, Camera camera, Location locationAndRotation) throws Exception {
@@ -716,6 +727,10 @@ public class VisionCompositing extends AbstractModelObject{
 
         public double getComputeTime() {
             return computeTime;
+        }
+
+        public String getDiagnostics() {
+            return diagnostics;
         }
 
         public ArrayList<Shot> getCompositeShots() {
@@ -782,6 +797,7 @@ public class VisionCompositing extends AbstractModelObject{
         private final double[] yOctogonalHullSign = new double[] { -invHypot, -1, -invHypot,  0,  0, +invHypot, +1, +invHypot };
         
         private double octogonalHull[] = new double[8]; 
+        private LengthConverter lengthConverter = new LengthConverter();
 
         /**
          * Compute the needed compositing solution for the given package footprint. 
@@ -803,7 +819,18 @@ public class VisionCompositing extends AbstractModelObject{
                     + 2*tolerance;
             // Note, the effective camera view radius is limited to maxPartDiameter 
             cameraViewRadius = Math.min(maxPartDiameter, Math.min(camera.getWidth()*upp.getX(), camera.getHeight()*upp.getY())) / 2; 
-            if (footprint.getPads().isEmpty() 
+            Pad body = new Pad();
+            body.setWidth(footprint.getBodyWidth());
+            body.setHeight(footprint.getBodyHeight());
+            List<Pad> pads;
+            if (compositingMethod.isBody()) {
+                pads = new ArrayList<>();
+                pads.add(body);
+            }
+            else {
+                pads = footprint.getPads();
+            }
+            if (pads.isEmpty() 
                     || visionSettings.getVisionOffset().isInitialized()
                     || !camera.getRoamingRadius().isInitialized()) {
                 // No footprint, or vision offsets present, or no roaming radius set.
@@ -813,24 +840,28 @@ public class VisionCompositing extends AbstractModelObject{
                         maxPartDiameter, maxPartDiameter, maxPartDiameter/2, maxPartDiameter/2, false, ShotConfiguration.Unknown));
                 if (visionSettings.getVisionOffset().isInitialized()) {
                     compositingSolution = CompositingSolution.VisionOffsets;
+                    diagnostics += visionSettings.getClass().getSimpleName()+" "+visionSettings.getName()
+                        + " has Vision Offsets "
+                        + lengthConverter.convertForward(visionSettings.getVisionOffset().getLengthX())+", "
+                        + lengthConverter.convertForward(visionSettings.getVisionOffset().getLengthY())
+                        + ", compositing unsupported. ";
                 }
                 else if (!camera.getRoamingRadius().isInitialized()) {
                     compositingSolution = CompositingSolution.NoCameraRoaming;
+                    diagnostics += camera.getClass().getSimpleName()+" "+camera.getName()+" has no roaming radius set, compositing forbidden. ";
                 }
                 else {
                     compositingSolution = CompositingSolution.NoFootprint;
+                    diagnostics += "Package "+pkg.getId()+" has no footprint defined, compositing not possible. ";
                 }
                 return;
             }
-            // Add the body to the octogonal hull.
-            Pad body = new Pad();
-            body.setWidth(footprint.getBodyWidth());
-            body.setHeight(footprint.getBodyHeight());
+            // Add the body to the octogonal hull (must not collide in roaming radius).
             addPadToOctogalHull(body);
             // Rectify and fuse pads.
             // As a heuristic, we assume pads are ordered in lines. If not, it will be less performant bus still ok.  
             ArrayList<Footprint.Pad> rectPads = new ArrayList<>();
-            for (Footprint.Pad pad : footprint.getPads()) {
+            for (Footprint.Pad pad : pads) {
                 if (Math.abs(pad.getRotation() % 90) > eps) {
                     if (compositingMethod.isEnforced()) { 
                         throw new Exception("Package "+pkg.getId()+" pad "+pad.getName()+" not at 90° step angle.");
@@ -904,8 +935,13 @@ public class VisionCompositing extends AbstractModelObject{
                         overallWidth+2*tolerance, overallHeight+2*tolerance, 
                         minRadius, cameraViewRadius,
                         false, ShotConfiguration.Unknown));
-                compositeSolution = (minRadius < cameraViewRadius ? 
-                        CompositingSolution.Small : CompositingSolution.RestrictedCameraRoaming);
+                if (minRadius < cameraViewRadius) {
+                    compositeSolution = CompositingSolution.Small;
+                }
+                else {
+                    compositeSolution = CompositingSolution.RestrictedCameraRoaming;
+                    diagnostics += "Compositing method "+compositingMethod+" blocks compositing. ";
+                }
             }
             else if (cornerSolution != null){
                 // Compose shots from corners.
@@ -919,9 +955,11 @@ public class VisionCompositing extends AbstractModelObject{
                         false, ShotConfiguration.Unknown));
                 if (outOfRoamingCandidates > 0) {
                     compositeSolution = CompositingSolution.RestrictedCameraRoaming;
+                    diagnostics += camera.getClass().getSimpleName()+" "+camera.getName()+" has insufficient roaming radius, compositing blocked. ";
                 }
                 else {
                     compositeSolution = CompositingSolution.Invalid;
+                    diagnostics += "No solution found. Cannot isolate corners with compositable X and Y symmetries. Check footprint. ";
                 }
             }
             this.compositingSolution = compositeSolution;
@@ -1013,7 +1051,7 @@ public class VisionCompositing extends AbstractModelObject{
                 Corner bestBuddy = null;
                 Corner bestBuddy2 = null;
                 Corner bestBuddy3 = null;
-                if (compositingMethod != CompositingMethod.SingleCorners) {
+                if (!compositingMethod.isSingleCorners()) {
                     for (Corner buddy : solution) {
                         if (corner.pairsInOneShotWith(buddy)) {
                             ShotConfiguration config = null;

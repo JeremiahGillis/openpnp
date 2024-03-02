@@ -74,6 +74,7 @@ import org.openpnp.model.Configuration;
 import org.openpnp.model.Length;
 import org.openpnp.model.LengthUnit;
 import org.openpnp.model.Location;
+import org.openpnp.model.Motion;
 import org.openpnp.spi.Actuator;
 import org.openpnp.spi.Camera;
 import org.openpnp.spi.HeadMountable;
@@ -90,7 +91,7 @@ public class CameraView extends JComponent implements CameraListener {
     private static final String PREF_RETICLE = "CamerView.reticle";
     private static final String PREF_ZOOM_INCREMENT = "CamerView.zoomIncrement";
     private static final String PREF_RENDERING_QUALITY = "CamerView.renderingQuality";
-    private static final double DEFAULT_ZOOM_INCREMENT = 0.01;
+    private static final double DEFAULT_ZOOM_INCREMENT = 0.1;
 
     private static final String DEFAULT_RETICLE_KEY = "DEFAULT_RETICLE_KEY";
 
@@ -1433,7 +1434,7 @@ public class CameraView extends JComponent implements CameraListener {
      * Capture the current image (unscaled, unmodified) and write it to disk.
      */
     private void captureSnapshot() {
-        UiUtils.messageBoxOnException(() -> {
+        UiUtils.submitUiMachineTask(() -> {
             File dir = new File(Configuration.get().getConfigurationDirectory(), "snapshots");
             dir.mkdirs();
             DateFormat df = new SimpleDateFormat("YYYY-MM-dd_HH.mm.ss.SSS");
@@ -1548,7 +1549,7 @@ public class CameraView extends JComponent implements CameraListener {
                 if (currentLocation.getLinearLengthTo(camera.getLocation()).compareTo(camera.getRoamingRadius()) < 0
                         && location.getLinearLengthTo(camera.getLocation()).compareTo(camera.getRoamingRadius()) < 0) {
                     // Within the roaming area, no need to go to Safe Z.
-                    nozzle.moveTo(location);
+                    nozzle.moveTo(location, Motion.MotionOption.JogMotion);
                 }
                 else {
                     // Current or new location outside roaming area. Move to safe Z.

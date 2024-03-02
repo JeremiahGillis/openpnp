@@ -38,6 +38,7 @@ import org.opencv.core.Mat;
 import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
+import org.openpnp.Translations;
 import org.openpnp.gui.support.Wizard;
 import org.openpnp.machine.reference.SimulationModeMachine;
 import org.openpnp.machine.reference.camera.wizards.ImageCameraConfigurationWizard;
@@ -73,6 +74,9 @@ public class ImageCamera extends ReferenceCamera {
 
     @Element(required = false)
     private Location imageUnitsPerPixel;
+
+    @Element(required = false)
+    private Location imageOffset = new Location(LengthUnit.Millimeters, 0, 0, 0, 0);
 
     @Attribute(required = false)
     private double simulatedRotation = 0;
@@ -160,7 +164,7 @@ public class ImageCamera extends ReferenceCamera {
     }
 
     public void setSimulatedScale(double simulatedScale) {
-        this.simulatedScale = simulatedScale;
+         this.simulatedScale = simulatedScale;
     }
 
     public double getSimulatedDistortion() {
@@ -196,6 +200,14 @@ public class ImageCamera extends ReferenceCamera {
 
     public void setImageUnitsPerPixel(Location imageUnitsPerPixel) {
         this.imageUnitsPerPixel = imageUnitsPerPixel;
+    }
+
+    public Location getImageOffset() {
+        return imageOffset;
+    }
+
+    public void setImageOffset(Location imageOffset) {
+        this.imageOffset = imageOffset;
     }
 
     public String getSourceUri() {
@@ -272,8 +284,11 @@ public class ImageCamera extends ReferenceCamera {
         Graphics2D gFrame = frame.createGraphics();
         AffineTransform tx = gFrame.getTransform();
 
-        double locationX = location.getX();
-        double locationY = location.getY();
+        // apply configured offset
+        Location imageLocation = location.add(imageOffset);
+        
+        double locationX = imageLocation.getX();
+        double locationY = imageLocation.getY();
 
         Location upp = getImageUnitsPerPixel().convertToUnits(AxesLocation.getUnits());
         double pixelX = locationX / upp.getX();
@@ -561,7 +576,7 @@ public class ImageCamera extends ReferenceCamera {
             }
 
             BufferedImage template = OpenCvUtils.createFootprintTemplate(this, footprint, physicalLocation.getRotation(),
-                    topView, padsColor, bodyColor, backgroundColor, 1.5, 8);
+                    0, 0, 0, 0, topView, padsColor, bodyColor, backgroundColor, 1.5, 8);
             int templateDimension = (int)Math.sqrt(Math.pow(template.getWidth(), 2)+Math.pow(template.getHeight(), 2));
             templateMat = OpenCvUtils.toMat(template);
             int kernelSize = (templateDimension/4)|1;
@@ -686,9 +701,9 @@ public class ImageCamera extends ReferenceCamera {
         super.findIssues(solutions);
         if (solutions.isTargeting(Milestone.Connect)) {
             solutions.add(new Solutions.Issue(
-                    this, 
-                    "The simulation ImageCamera can be replaced with a OpenPnpCaptureCamera to connect to a real USB camera.", 
-                    "Replace with OpenPnpCaptureCamera.", 
+                    this,
+                    Translations.getString("ImageCamera.Issue"), //$NON-NLS-1$
+                    Translations.getString("ImageCamera.Solution"), //$NON-NLS-1$
                     Severity.Fundamental,
                     "https://github.com/openpnp/openpnp/wiki/OpenPnpCaptureCamera") {
 

@@ -35,6 +35,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.openpnp.Translations;
 import org.openpnp.gui.support.PropertySheetWizardAdapter;
 import org.openpnp.machine.reference.ReferenceActuator;
 import org.openpnp.machine.reference.ReferenceMachine;
@@ -225,7 +226,7 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
     protected double backlashFeedRateFactor = 0.1;
 
     @Attribute(required = false)
-    protected int timeoutMilliseconds = 5000;
+    protected int timeoutMilliseconds = 20000;
 
     @Attribute(required = false)
     protected int connectWaitTimeMilliseconds = 3000;
@@ -245,6 +246,9 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
 
     @Attribute(required = false)
     protected boolean compressGcode;
+
+    @Attribute(required = false)
+    protected String compressionExcludes = "[]\"";
 
     @Attribute(required = false)
     protected boolean loggingGcode;
@@ -322,6 +326,140 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
 
     private PrintWriter gcodeLogger;
 
+    // create a class to group send-on-change behavior
+    // used to support sending feedRate, acceleration and jerk only when they have changed
+    static class SendOnChange {
+        // objects stored in machine.xml
+        @Attribute(required = false)
+        protected boolean sendOnChange = false; // configuration flag: if set the value is only send if it has changed
+
+        @Attribute(required = false)
+        protected Double relativeDeviation;     // configuration flag: relative deviation between new and last value that is considered as value has change
+
+        // This object is designed to be initialized on creation. However, the de-serializer used to
+        // read the machine.xml configuration file seems to not support the creation using a custom
+        // constructor required to initialize it leaving this object uninitialized. This in turn 
+        // requires that the object is initialized later in a different context making the code 
+        // harder to understand. Storing the value in the machine.xml configuration file circumvents
+        // the problem. However now content thats compile-time defined becomes part of the
+        // configuration file...
+        @Attribute(required = false)
+        private String variable;                // variable to be replaced in the (g-code) command
+
+        // local objects
+        private Double lastValue;               // last value processed
+
+        // this constructor shall be used to create the object and specify the variable in G-Code commands
+        // it is bound to.
+        public SendOnChange(String variable) {
+            this.variable = variable;
+            this.relativeDeviation = 0.001;
+            reset();
+        }
+        
+        // this constructor is needed to correctly read/load maschine.xml on startup
+        // the value of variable is now part of the machine.xml configuration file
+        public SendOnChange() {
+            this(null);
+        }
+        
+        public String substituteVariable(String command, Double value) {
+            // send/substitute string and value
+            if (!sendOnChange                                                         // .. if forced
+                 || value == null                                                     // .. or value not initialized
+                 || lastValue == null                                                 // .. or last value not initialized
+                 || value == 0.0                                                      // .. of if the new value is 0 - avoid division by zero
+                 || Math.abs((lastValue - value) / value) > relativeDeviation) {      // .. or if the value has changed by more then 1e-3 relative
+                lastValue = value;
+                command = GcodeDriver.substituteVariable(command, variable, value);   // call the substitute method of the outer class as used by the rest of the code
+            } else {
+                command = GcodeDriver.substituteVariable(command, variable, null);    // remove the variable
+            }
+            // always substitute string + "F"
+            command = GcodeDriver.substituteVariable(command, variable + "F", value); // call the substitute method of the outer class as used by the rest of the code
+            
+            return command;
+        }
+
+        // reset the send on change behavior by invalidating lastValue
+        public void reset() {
+            lastValue = null;
+        }
+        
+        public boolean isSendOnChange() {
+            return sendOnChange;
+        }
+
+        public void setSendOnChange(boolean state) {
+            sendOnChange = state;
+        }
+    }
+    
+    // define feedRate, acceleration and jerk as SendOnChange types to handle them in a unified way
+    @Element(required = false)
+    protected SendOnChange sendOnChangeFeedRate;
+    @Element(required = false)
+    protected SendOnChange sendOnChangeAcceleration;
+    @Element(required = false)
+    protected SendOnChange sendOnChangeJerk;
+
+    // provide getter methods to read sendOnChange<...> and initialize then on the fly
+    private SendOnChange getSendOnChangeFeedRate() {
+        if (sendOnChangeFeedRate == null) {
+            sendOnChangeFeedRate = new SendOnChange("FeedRate");
+        }
+        
+        return sendOnChangeFeedRate;
+    }
+    private SendOnChange getSendOnChangeAcceleration() {
+        if (sendOnChangeAcceleration == null) {
+            sendOnChangeAcceleration = new SendOnChange("Acceleration");
+        }
+        
+        return sendOnChangeAcceleration;
+    }
+    private SendOnChange getSendOnChangeJerk() {
+        if (sendOnChangeJerk == null) {
+            sendOnChangeJerk = new SendOnChange("Jerk");
+        }
+        
+        return sendOnChangeJerk;
+    }
+    
+    // provide get and set methods to allow changing the configuration of sendOnChange using the UI
+    public boolean isSendOnChangeFeedRate() {
+        return getSendOnChangeFeedRate().isSendOnChange();
+    }
+    public void setSendOnChangeFeedRate(boolean state) {
+        getSendOnChangeFeedRate().setSendOnChange(state);
+    }
+    public boolean isSendOnChangeAcceleration() {
+        return getSendOnChangeAcceleration().isSendOnChange();
+    }
+    public void setSendOnChangeAcceleration(boolean state) {
+        getSendOnChangeAcceleration().setSendOnChange(state);
+    }
+    public boolean isSendOnChangeJerk() {
+        return getSendOnChangeJerk().isSendOnChange();
+    }
+    public void setSendOnChangeJerk(boolean state) {
+        getSendOnChangeJerk().setSendOnChange(state);
+    }
+    
+    // helper functions to process all send-on-change variables at once
+    private void sendOnChangeResetAll() {
+        getSendOnChangeFeedRate().reset();
+        getSendOnChangeAcceleration().reset();
+        getSendOnChangeJerk().reset();
+        Logger.trace("Send-on-change logic for Feed Rate, Acceleration and Jerk reset");
+    }
+    private String sendOnChangeSubstituteAllVariables(String command, Double feedRate, Double acceleration, Double jerk) {
+        command = getSendOnChangeFeedRate().substituteVariable(command, feedRate);
+        command = getSendOnChangeAcceleration().substituteVariable(command, acceleration);
+        command = getSendOnChangeJerk().substituteVariable(command, jerk);
+        return command;
+    }
+    
     @Commit
     public void commit() {
         super.commit();
@@ -359,12 +497,15 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
 
     public synchronized void connect() throws Exception {
         disconnectRequested = false;
+        getCommunications().setDriverName(getName());
+        Logger.debug("[{}] Connect", getCommunications().getConnectionName());
         getCommunications().connect();
         connected = false;
 
         connectThreads();
 
         // Wait a bit while the controller starts up
+        Logger.trace(getName()+" waiting for connection "+connectWaitTimeMilliseconds+"ms");
         Thread.sleep(connectWaitTimeMilliseconds);
 
         // Consume any startup messages
@@ -377,13 +518,16 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
 
         }
 
-        // Disable the machine
+        // Disable the driver
         setEnabled(false);
 
         // Send startup Gcode
         sendGcode(getCommand(null, CommandType.CONNECT_COMMAND));
 
         connected = true;
+
+        // reset send-on-change behavior
+        sendOnChangeResetAll();
     }
 
     /**
@@ -476,7 +620,7 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
                     }
                     if (axis.getMotionLimit(3) != 0.0) {
                         if (jerk == null || jerk > axis.getMotionLimit(3)) {
-                            feedrate = axis.getMotionLimit(3);
+                            jerk = axis.getMotionLimit(3);
                         }
                     }
                 }
@@ -488,22 +632,16 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
 
             if (getMotionControlType().isUnpredictable()) {
                 // Do not initialize rates, as the motion control is unpredictable, i.e. not controlled by us.  
-                command = substituteVariable(command, "FeedRate", null);
-                command = substituteVariable(command, "Acceleration", null);
-                command = substituteVariable(command, "Jerk", null);
+                command = sendOnChangeSubstituteAllVariables(command, null, null, null);
             }
             else {
                 // For the purpose of homing, initialize the rates to the lowest of any axis. 
-                command = substituteVariable(command, "FeedRate", feedrate);
-                command = substituteVariable(command, "Acceleration", acceleration);
-                command = substituteVariable(command, "Jerk", jerk);
+                command = sendOnChangeSubstituteAllVariables(command, feedrate, acceleration, jerk);
             }
         }
         else {
             // Do not initialize rates in legacy mode.  
-            command = substituteVariable(command, "FeedRate", null);
-            command = substituteVariable(command, "Acceleration", null);
-            command = substituteVariable(command, "Jerk", null);
+            command = sendOnChangeSubstituteAllVariables(command, null, null, null);
         }
 
         long timeout = -1;
@@ -519,6 +657,9 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
 
         AxesLocation homeLocation = new AxesLocation(machine, this, (axis) -> (axis.getHomeCoordinate()));
         homeLocation.setToDriverCoordinates(this);
+
+        // reset send-on-change behavior
+        sendOnChangeResetAll();
     }
 
     public List<String> getAxisVariables(ReferenceMachine machine) {
@@ -716,6 +857,7 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
         Double feedRate = move.getFeedRatePerMinute();
         Double acceleration = move.getAccelerationPerSecond2();
         Double jerk = move.getJerkPerSecond3();
+
         double driverDistance = movedAxesLocation.getEuclideanMetric(this, (axis) -> 
             movedAxesLocation.getLengthCoordinate(axis).convertToUnits(getUnits()).getValue() - axis.getDriverCoordinate()).third;
 
@@ -738,11 +880,31 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
                     +"Backlash compensation is now done outside of the drivers and configured on the axes.");
         }
 
+        // Sanitize and unit-convert the rates.
+        double vMin = getMinimumRate(1)
+                .convertToUnits(getUnits()).getValue();
+        double aMin = getMinimumRate(2)
+                .convertToUnits(getUnits()).getValue();
+        double jMin = getMinimumRate(3)
+                .convertToUnits(getUnits()).getValue();
+        double driverUnitsFactor = new Length(1, AxesLocation.getUnits())
+                .convertToUnits(getUnits()).getValue();
+        if (feedRate != null) {
+            feedRate = Math.max(feedRate, vMin*60.0);   // feedrate is in <x>/min and vMin in <x>/sec
+            feedRate *= driverUnitsFactor;              // scale feedrate to driver units.
+        }
+        if (acceleration != null) {
+            acceleration = Math.max(acceleration, aMin);
+            acceleration *= driverUnitsFactor;
+        }
+        if (jerk != null) {
+            jerk = Math.max(jerk, jMin);
+            jerk *= driverUnitsFactor;
+        }
+
         command = substituteVariable(command, "Id", hm.getId());
         command = substituteVariable(command, "Name", hm.getName());
-        command = substituteVariable(command, "FeedRate", feedRate);
-        command = substituteVariable(command, "Acceleration", acceleration);
-        command = substituteVariable(command, "Jerk", jerk);
+        command = sendOnChangeSubstituteAllVariables(command, feedRate, acceleration, jerk);
 
         ReferenceMachine machine = (ReferenceMachine) hm.getHead().getMachine();
         // Get a map of the axes of ...
@@ -810,8 +972,8 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
                 // Axis specific jerk limits are needed on TinyG.
                 double axisDistance = coordinate - previousCoordinate;
                 double axisJerk = (jerk != null ? jerk : 0)*Math.abs(axisDistance)/driverDistance;
-                command = substituteVariable(command, variable+"Jerk", axisJerk > 1 ? axisJerk : null);
-                command = substituteVariable(command, variable+"JerkMupm3", axisJerk > 4.63 ? axisJerk*1e-6*Math.pow(60, 3) : null); // TinyG: Megaunits/min^3 
+                command = substituteVariable(command, variable+"Jerk", axisJerk > jMin ? axisJerk : null);
+                command = substituteVariable(command, variable+"JerkMupm3", axisJerk > jMin*4.63 ? axisJerk*1e-6*Math.pow(60, 3) : null); // TinyG: Megaunits/min^3 
                 // Store the new driver coordinate on the axis.
                 axis.setDriverCoordinate(coordinate);
             }
@@ -895,14 +1057,16 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
     @Override
     public void actuate(Actuator actuator, boolean on) throws Exception {
         String command = getCommand(actuator, CommandType.ACTUATE_BOOLEAN_COMMAND);
+        // This substitution must come first, as it may contain nested and escaped {variables}.
+        command = substituteVariable(command, "True", on ? on : null);
+        command = substituteVariable(command, "False", on ? null : on);
+
         command = substituteVariable(command, "Id", actuator.getId());
         command = substituteVariable(command, "Name", actuator.getName());
         if (actuator instanceof ReferenceActuator) {
             command = substituteVariable(command, "Index", ((ReferenceActuator)actuator).getIndex());
         }
         command = substituteVariable(command, "BooleanValue", on);
-        command = substituteVariable(command, "True", on ? on : null);
-        command = substituteVariable(command, "False", on ? null : on);
         sendGcode(command);
         SimulationModeMachine.simulateActuate(actuator, on, true);
     }
@@ -1136,11 +1300,16 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
         if (timeout == -1) {
             timeout = infinityTimeoutMilliseconds;
         }
-        long t1 = System.currentTimeMillis() + timeout;
+        long t0 = System.currentTimeMillis(); 
+        long t1 = t0 + timeout;
         List<Line> responses = new ArrayList<>();
         do{ 
             responses.addAll(receiveResponses());
             if (containsMatch(responses, regex)) {
+                long dt = System.currentTimeMillis() - t0;
+                if (dt > 1) {
+                    Logger.trace("{} got response matching \"{}\" after {}ms", getName(), regex, dt);
+                }
                 return responses;
             }
             Line response = responseQueue.poll(Math.max(1, t1 - System.currentTimeMillis()), TimeUnit.MILLISECONDS);
@@ -1174,16 +1343,41 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
     protected String preProcessCommand(String command) {
         if (removeComments || compressGcode) {
             // See http://linuxcnc.org/docs/2.4/html/gcode_overview.html
-            int col = 0;
             boolean insideComment = false;
             boolean decimal = false;
             int trailingZeroes = 0;
             StringBuilder compressedCommand = new StringBuilder();
-            for (char ch : command.toCharArray()) {
-                col++;
+            for (int col = 0; col < command.length();) {
+                char ch = command.charAt(col++);
                 if (ch == ' ') {
                     // Note, in Gcode, spaces are allowed in the middle of decimals.
                     if (compressGcode) {
+                        continue;
+                    }
+                }
+                else if (compressionExcludes.contains(String.valueOf(ch))) {
+                    trailingZeroes = compressDecimal(trailingZeroes, compressedCommand);
+                    decimal = false;
+                    // Due to ambiguities in escaping of strings and nesting of brackets, and brackets in strings,
+                    // just exclude everything from the left-most to the right-most exclude character. 
+                    int pos = col - 1;
+                    for (char cch : compressionExcludes.toCharArray()) {
+                        if (cch != ' ') { // ignore spaces the user might have added
+                            int p = command.lastIndexOf(cch);
+                            if (p >= pos) {
+                                pos = p;
+                            }
+                        }
+                    }
+                    if (pos < col) {
+                        // Matching char missing, just append the rest of the line as is.
+                        compressedCommand.append(command.substring(col-1));
+                        break;
+                    }
+                    else {
+                        // Matching bracket/quote found, exclude inner string from compression. 
+                        compressedCommand.append(command.substring(col-1, pos+1));
+                        col = pos+1;
                         continue;
                     }
                 }
@@ -1267,9 +1461,15 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
     }
 
     private int compressDecimal(int trailingZeroes, StringBuilder compressedCommand) {
-        if (compressGcode && trailingZeroes > 0) {
-            // Cut away trailing zeroes.
-            compressedCommand.delete(compressedCommand.length() - trailingZeroes, compressedCommand.length());
+        if (compressGcode && trailingZeroes > 0 
+                && compressedCommand.length() - trailingZeroes > 0) {
+            // Has trailing zeroes (or trailing dot).
+            // Check if it has at least one digit.
+            char ch = compressedCommand.charAt(compressedCommand.length() - trailingZeroes - 1);
+            if (ch >= '0' && ch <= '9') {
+                // Cut away trailing zeroes.
+                compressedCommand.delete(compressedCommand.length() - trailingZeroes, compressedCommand.length());
+            }
         }
         return 0;
     }
@@ -1277,13 +1477,17 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
     protected class ReaderThread extends Thread {
         @Override
         public void run() {
+            // Get the copies that are valid for this thread.
+            LinkedBlockingQueue<Line> responseQueue = GcodeDriver.this.responseQueue;
+            ReferenceDriverCommunications comms = getCommunications();
+            String connectionName = comms.getConnectionName();
             while (!disconnectRequested) {
                 String receivedLine;
                 try {
-                    receivedLine = getCommunications().readLine();
+                    receivedLine = comms.readLine();
                     if (receivedLine == null) {
                         // Line read failed eg. due to socket closure
-                        Logger.error("Failed to read gcode response");
+                        Logger.error("[{}] Failed to read gcode response", connectionName);
                         return;
                     }
                     receivedLine = receivedLine.trim();
@@ -1293,22 +1497,22 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
                 }
                 catch (IOException e) {
                     if (disconnectRequested) {
-                        Logger.trace("Read error while disconnecting (normal)");
+                        Logger.trace("[{}] Read error while disconnecting (expected)", connectionName);
                         return;
                     }
                     else {
-                        Logger.error(e, "Read error");
+                        Logger.error(e, "[{}] Read error", connectionName);
                         return;
                     }
                 }
                 Line line = new Line(receivedLine);
-                Logger.trace("[{}] << {}", getCommunications().getConnectionName(), line);
+                Logger.trace("[{}] << {}", connectionName, line);
                 // Process the response.
                 processResponse(line);
                 // Add to the responseQueue for further processing by the caller.
                 responseQueue.offer(line);
             }
-            Logger.trace("[{}] disconnectRequested, bye-bye.", getCommunications().getConnectionName());
+            Logger.trace("[{}] disconnectRequested, bye-bye.", connectionName);
             if (connected) {
                 connected = false;
             }
@@ -1363,15 +1567,27 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
             }
             catch (IllegalArgumentException e) {
                 // Axis is not present in pattern. That's a warning, but might not be supported by controller, so we let it go. 
-                Logger.warn("Axis {} letter {} missing in POSITION_REPORT_REGEX groups.", axis.getName(), axis.getLetter());
+                Logger.warn("{}: Axis {} letter {} missing in POSITION_REPORT_REGEX groups.", getName(), axis.getName(), axis.getLetter());
             }
             catch (Exception e) {
-                Logger.warn("Error processing position report for axis {}: {}", axis.getName(), e);
+                Logger.warn("{}: Error processing position report for axis {}: {}", getName(), axis.getName(), e);
             }
         }
         // Store the latest momentary position.
         reportedLocationsQueue.add(position);
 
+        // detect if the new position has changed compared to where OpenPnP thinks the controller shall be
+        for (ControllerAxis axis : position.getAxes(this)) {
+            if (!axis.coordinatesMatch(
+                  position.getLengthCoordinate(axis), 
+                  axis.getDriverLengthCoordinate())) {
+
+                // for safety reasons reset the send-on-change logic here as well
+                sendOnChangeResetAll();
+                break;
+            }
+        }
+        
         if (motionPending) {
             Logger.warn("Position report cannot be processed when motion might still be pending. Missing Machine Coordination on Actuators?", 
                     position);
@@ -1410,9 +1626,12 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
     public PropertySheet[] getPropertySheets() {
         return new PropertySheet[] {
                 new PropertySheetWizardAdapter(super.getConfigurationWizard()),
-                new PropertySheetWizardAdapter(new GcodeDriverSettings(this), "Driver Settings"),
-                new PropertySheetWizardAdapter(new GcodeDriverGcodes(this), "Gcode"),
-                new PropertySheetWizardAdapter(new GcodeDriverConsole(this), "Console"),
+                new PropertySheetWizardAdapter(new GcodeDriverSettings(this), Translations.getString(
+                        "GCodeDriver.GCodeDriverSettings.title")), //$NON-NLS-1$
+                new PropertySheetWizardAdapter(new GcodeDriverGcodes(this), Translations.getString(
+                        "GCodeDriver.GCode.title")), //$NON-NLS-1$
+                new PropertySheetWizardAdapter(new GcodeDriverConsole(this), Translations.getString(
+                        "GCodeDriver.Console.title")), //$NON-NLS-1$
         };
     }
 
@@ -1492,6 +1711,14 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
         firePropertyChange("compressGcode", oldValue, compressGcode);
     }
 
+    public String getCompressionExcludes() {
+        return compressionExcludes;
+    }
+
+    public void setCompressionExcludes(String compressionExcludes) {
+        this.compressionExcludes = compressionExcludes;
+    }
+
     public boolean isUsingLetterVariables() {
         return usingLetterVariables;
     }
@@ -1555,8 +1782,7 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
         Matcher m = p.matcher(getReportedAxes());
         while (m.find()) {
             String letter = m.group("letter");
-            if (!reportedLetters.contains(letter) // No duplicates.
-                    && (!letter.equals("E") || reportedLetters.contains("A"))) { // Not E, if solo.
+            if (!reportedLetters.contains(letter)) { // No duplicates.
                 reportedLetters.add(letter);
             }
         }
@@ -1597,56 +1823,72 @@ public class GcodeDriver extends AbstractReferenceDriver implements Named {
      * Instead just connect/disconnect this single driver.
      * 
      * @param preserveOldValue preserve the old value if the detection fails.  
+     * @param allowConnect allow opening an ad hoc connection, if the machine is disabled.
      * 
      * @throws Exception
      */
-    public void detectFirmware(boolean preserveOldValue) throws Exception {
+    public void detectFirmware(boolean preserveOldValue, boolean allowConnect) throws Exception {
         if (!preserveOldValue) {
             setDetectedFirmware(null);
             setReportedAxes(null);
             setConfiguredAxes(null);
         }
-        boolean wasConnected = connected;
-        if (!wasConnected) {
-            connect();
+        Machine machine = Configuration.get().getMachine();
+        if (machine.isEnabled() || !allowConnect) {
+            // If the machine is enabled, we must do this properly in a machine task.
+            machine.execute(() -> { 
+                detectFirmwareSequence();
+                return null;
+            }, 
+                    false, 2000, 2000);
         }
-
-        try {
-            Logger.debug("=== Detecting firmware and position reporting, please ignore any errors and warnings.");
-            sendCommand("M115");
-            String firmware = receiveSingleResponse("^.*FIRMWARE.*");
-            if (firmware != null) {
-                setDetectedFirmware(firmware);
+        else {
+            // If the machine is not enabled, use an ad hoc connection.
+            boolean wasConnected = connected;
+            try {
+                if (!wasConnected) {
+                    connect();
+                }
+                detectFirmwareSequence();
             }
-            sendCommand("M114");
-            String reportedAxes = receiveSingleResponse(".*[XYZABCDEUVW]:-?\\d+\\.\\d+.*");
-            if (reportedAxes != null) {
-                if (firmware != null) {
-                    try {
-                        if (getFirmwareProperty("FIRMWARE_NAME", "").contains("Duet")) {
-                            sendCommand("M584");
-                            String axisConfig = receiveSingleResponse("^Driver assignments:.*");
-                            if (axisConfig != null) {
-                                setConfiguredAxes(axisConfig);
-                            }
-                        }
-                        else {
-                            setConfiguredAxes(null);
+            finally {
+                if (!wasConnected) {
+                    disconnect();
+                }
+            }
+        }
+    }
+
+    protected void detectFirmwareSequence() throws Exception {
+        Logger.debug("=== Detecting firmware and position reporting, please ignore any errors and warnings.");
+        sendCommand("M115");
+        String firmware = receiveSingleResponse("^.*FIRMWARE.*");
+        if (firmware != null) {
+            setDetectedFirmware(firmware);
+        }
+        sendCommand("M114");
+        String reportedAxes = receiveSingleResponse(".*[XYZABCDEUVW]:-?\\d+\\.\\d+.*");
+        if (reportedAxes != null) {
+            if (firmware != null) {
+                try {
+                    if (getFirmwareProperty("FIRMWARE_NAME", "").contains("Duet")) {
+                        sendCommand("M584");
+                        String axisConfig = receiveSingleResponse("^Driver assignments:.*");
+                        if (axisConfig != null) {
+                            setConfiguredAxes(axisConfig);
                         }
                     }
-                    catch (Exception e) {
-                        // ignore
+                    else {
+                        setConfiguredAxes(null);
                     }
                 }
-                setReportedAxes(reportedAxes);
+                catch (Exception e) {
+                    // ignore
+                }
             }
-            Logger.debug("=== End detecting firmware and position reporting.");
+            setReportedAxes(reportedAxes);
         }
-        finally {
-            if (!wasConnected) {
-                disconnect();
-            }
-        }
+        Logger.debug("=== End detecting firmware and position reporting.");
     }
 
     public String getFirmwareProperty(String name, String defaultValue) {

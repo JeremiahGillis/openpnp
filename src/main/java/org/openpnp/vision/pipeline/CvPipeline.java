@@ -50,7 +50,7 @@ import org.simpleframework.xml.stream.Style;
 @Root
 public class CvPipeline implements AutoCloseable {
     static {
-        nu.pattern.OpenCV.loadShared();
+        nu.pattern.OpenCV.loadLocally();
     }
 
     @ElementList
@@ -404,6 +404,22 @@ public class CvPipeline implements AutoCloseable {
         for (CvStage stage : pipeline.getStages()) {
             add(stage);
         }
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        if (other == this) {
+            return true;
+        }
+        else if (other instanceof CvPipeline) {
+            try {
+                return toXmlString().equals(((CvPipeline) other).toXmlString());
+            }
+            catch (Exception e) {
+                //ignore
+            }
+        }
+        return false;
     }
 
     private String generateUniqueName() {

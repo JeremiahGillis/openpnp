@@ -52,6 +52,7 @@ import org.openpnp.util.Collect;
 import org.openpnp.util.MovableUtils;
 import org.openpnp.util.UiUtils;
 import org.openpnp.util.VisionUtils;
+import org.openpnp.vision.pipeline.CvPipeline;
 import org.pmw.tinylog.Logger;
 
 public class NozzleTipSolutions implements Solutions.Subject  {
@@ -141,7 +142,7 @@ public class NozzleTipSolutions implements Solutions.Subject  {
                                     "Nozzle tip "+nozzleTip.getName()+" has no compatible nozzle.", 
                                     "Go to the nozzle(s) and enable the Compatible switches where appropriate.", 
                                     Solutions.Severity.Error,
-                                    "https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration:-Nozzle-Setup#nozzle-to-nozzle-tip-compatibility"));
+                                    "https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration_Nozzle-Setup#nozzle-to-nozzle-tip-compatibility"));
                         }
                         else {
                             perNozzleTip(solutions, nozzleTip, camera, defaultNozzle);
@@ -162,6 +163,7 @@ public class NozzleTipSolutions implements Solutions.Subject  {
         final RecalibrationTrigger oldRecalibrationTrigger = nozzleTip.getCalibration().getRecalibrationTrigger();
         final boolean oldFailHoming = nozzleTip.getCalibration().isFailHoming();
         final BackgroundCalibrationMethod oldBackgroundCalibrationMethod = nozzleTip.getCalibration().getBackgroundCalibrationMethod();
+        final CvPipeline oldPipeline = nozzleTip.getCalibration().getPipeline(); 
         LengthConverter lengthConverter = new LengthConverter(); 
 
         if (!nozzleTip.getCalibration().isEnabled()) {
@@ -194,6 +196,7 @@ public class NozzleTipSolutions implements Solutions.Subject  {
                             + "camera view. A green circle and cross-hairs should appear and hug the wanted contour. "
                             + "Zoom the camera using the scroll-wheel. Make sure to target a circular edge that can be detected "
                             + "consistently even when seen from the side. This means it has to be a rather sharp-angled edge. "
+                            + "To eliminate nozzle and camera tilt errors, choose a contour that is lowest in Z on the nozzle tip. "
                             + "Typically, the air bore contour is targeted.</p><br/>"
                             + "<p>Then press Accept to enable and perform the nozzle tip calibration.</p>"
                             + "</html>";
@@ -240,6 +243,7 @@ public class NozzleTipSolutions implements Solutions.Subject  {
                                     nozzleTip.getCalibration().setCalibrationTipDiameter(visionDiameter);
                                     Logger.info("Set nozzle tip "+nozzleTip.getName()+" vision diameter to "+visionDiameter+" (previously "+oldVisionDiameter+")");
                                     nozzleTip.getCalibration().setEnabled(true);
+                                    nozzleTip.getCalibration().resetPipeline();
                                     nozzleTip.getCalibration().setRecalibrationTrigger(RecalibrationTrigger.MachineHome);
                                     nozzleTip.getCalibration().setFailHoming(false);
                                     nozzleTip.getCalibration().calibrate((ReferenceNozzle) nozzle);
@@ -258,6 +262,7 @@ public class NozzleTipSolutions implements Solutions.Subject  {
                         // Restore the old vision diameter.
                         nozzleTip.getCalibration().setCalibrationTipDiameter(oldVisionDiameter);
                         nozzleTip.getCalibration().setEnabled(false);
+                        nozzleTip.getCalibration().setPipeline(oldPipeline);
                         nozzleTip.getCalibration().setFailHoming(oldFailHoming);
                         nozzleTip.getCalibration().setRecalibrationTrigger(oldRecalibrationTrigger);
                         super.setState(state);
@@ -273,7 +278,7 @@ public class NozzleTipSolutions implements Solutions.Subject  {
                         "Set the Max. Pick Tolerance to the actual pick errors you expect. "
                         + "Press the blue info button (below) for more information.",
                         Severity.Error,
-                        "https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration:-Nozzle-Setup#nozzle-tip-configuration"));
+                        "https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration_Nozzle-Setup#nozzle-tip-configuration"));
             }
             else if (nozzleTip.getMinPartDiameter().compareTo(nozzleTip.getMaxPickTolerance().multiply(2)) <= 0) {
                 solutions.add(new Solutions.PlainIssue(
@@ -283,7 +288,7 @@ public class NozzleTipSolutions implements Solutions.Subject  {
                         + lengthConverter.convertForward(nozzleTip.getMaxPickTolerance())+". "
                         + "Press the blue info button (below) for more information.",
                         Severity.Error,
-                        "https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration:-Nozzle-Setup#nozzle-tip-configuration"));
+                        "https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration_Nozzle-Setup#nozzle-tip-configuration"));
             }
             else if (nozzleTip.getMinPartDiameter().compareTo(nozzleTip.getMaxPartDiameter()) >= 0) {
                 solutions.add(new Solutions.PlainIssue(
@@ -292,7 +297,7 @@ public class NozzleTipSolutions implements Solutions.Subject  {
                         "Make sure the Max. Part Diameter is larger than the Min. Part Diameter. "
                         + "Press the blue info button (below) for more information.",
                         Severity.Error,
-                        "https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration:-Nozzle-Setup#nozzle-tip-configuration"));
+                        "https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration_Nozzle-Setup#nozzle-tip-configuration"));
             }
             if (oldBackgroundCalibrationMethod == BackgroundCalibrationMethod.None) {
                 solutions.add(new Solutions.Issue(

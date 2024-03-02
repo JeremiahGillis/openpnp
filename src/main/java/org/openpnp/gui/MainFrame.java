@@ -23,7 +23,6 @@ import java.awt.AWTEvent;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
-import java.awt.Desktop;
 import java.awt.Dimension;
 import java.awt.EventQueue;
 import java.awt.FlowLayout;
@@ -40,7 +39,6 @@ import java.awt.event.WindowEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.lang.reflect.Method;
-import java.net.URI;
 import java.security.InvalidParameterException;
 import java.util.HashMap;
 import java.util.Locale;
@@ -74,18 +72,15 @@ import javax.swing.UIManager;
 import javax.swing.border.BevelBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
 import javax.swing.undo.UndoManager;
 
+import org.openpnp.Main;
 import org.openpnp.Translations;
 import org.openpnp.gui.components.CameraPanel;
 import org.openpnp.gui.components.ThemeDialog;
 import org.openpnp.gui.importer.BoardImporter;
-import org.openpnp.gui.importer.DipTraceImporter;
-import org.openpnp.gui.importer.EagleBoardImporter;
-import org.openpnp.gui.importer.EagleMountsmdUlpImporter;
-import org.openpnp.gui.importer.KicadPosImporter;
-import org.openpnp.gui.importer.LabcenterProteusImporter; //
-import org.openpnp.gui.importer.NamedCSVImporter;
 import org.openpnp.gui.support.AbstractConfigurationWizard;
 import org.openpnp.gui.support.HeadCellValue;
 import org.openpnp.gui.support.Icons;
@@ -94,10 +89,12 @@ import org.openpnp.gui.support.MessageBoxes;
 import org.openpnp.gui.support.OSXAdapter;
 import org.openpnp.gui.support.PropertySheetWizardAdapter;
 import org.openpnp.gui.support.RotationCellValue;
+import org.openpnp.model.BoardLocation;
 import org.openpnp.model.Configuration;
 import org.openpnp.model.Configuration.TablesLinked;
 import org.openpnp.model.LengthUnit;
 import org.openpnp.scripting.ScriptFileWatcher;
+import org.openpnp.util.UiUtils;
 import org.pmw.tinylog.Logger;
 
 import com.jgoodies.forms.layout.ColumnSpec;
@@ -146,6 +143,8 @@ public class MainFrame extends JFrame {
     private static MainFrame mainFrame;
 
     private MachineControlsPanel machineControlsPanel;
+    private PanelsPanel panelsPanel;
+    private BoardsPanel boardsPanel;
     private PartsPanel partsPanel;
     private PackagesPanel packagesPanel;
     private FeedersPanel feedersPanel;
@@ -202,6 +201,14 @@ public class MainFrame extends JFrame {
 
     public MachineControlsPanel getMachineControls() {
         return machineControlsPanel;
+    }
+
+    public PanelsPanel getPanelsTab() {
+        return panelsPanel;
+    }
+
+    public BoardsPanel getBoardsTab() {
+        return boardsPanel;
     }
 
     public PartsPanel getPartsTab() {
@@ -267,6 +274,9 @@ public class MainFrame extends JFrame {
     private ActionListener instructionsProceedActionListener;
 
     private ScriptFileWatcher scriptFileWatcher;
+    private JMenuItem mnEditRemoveBoard;
+    private JMenu mnEditAddBoard;
+    private JMenuItem mnCaptureToolLocation;
 
     public MainFrame(Configuration configuration) {
         mainFrame = this;
@@ -300,6 +310,8 @@ public class MainFrame extends JFrame {
                 prefs.getInt(PREF_WINDOW_WIDTH, PREF_WINDOW_WIDTH_DEF),
                 prefs.getInt(PREF_WINDOW_HEIGHT, PREF_WINDOW_HEIGHT_DEF));
         jobPanel = new JobPanel(configuration, this);
+        panelsPanel = new PanelsPanel(configuration, this);
+        boardsPanel = new BoardsPanel(configuration, this);
         partsPanel = new PartsPanel(configuration, this);
         packagesPanel = new PackagesPanel(configuration, this);
         feedersPanel = new FeedersPanel(configuration, this);
@@ -331,8 +343,9 @@ public class MainFrame extends JFrame {
         // File -> Import
         //////////////////////////////////////////////////////////////////////
         mnFile.addSeparator();
-        mnImport = new JMenu(Translations.getString("Menu.File.ImportBoard")); //$NON-NLS-1$
+        mnImport = new JMenu(Translations.getString("BoardsPanel.BoardPlacements.Action.Import")); //$NON-NLS-1$
         mnImport.setMnemonic(KeyEvent.VK_I);
+        mnImport.setEnabled(false);
         mnFile.add(mnImport);
 
 
@@ -350,13 +363,18 @@ public class MainFrame extends JFrame {
         mnEdit.add(new JMenuItem(undoAction));
         mnEdit.add(new JMenuItem(redoAction));
         mnEdit.addSeparator();
-        JMenu mnEditAddBoard = new JMenu(jobPanel.addBoardAction);
+        mnEditAddBoard = new JMenu(jobPanel.addBoardAction);
         mnEditAddBoard.add(new JMenuItem(jobPanel.addNewBoardAction));
         mnEditAddBoard.add(new JMenuItem(jobPanel.addExistingBoardAction));
+        mnEditAddBoard.addSeparator();
+        mnEditAddBoard.add(new JMenuItem(jobPanel.addNewPanelAction));
+        mnEditAddBoard.add(new JMenuItem(jobPanel.addExistingPanelAction));
         mnEdit.add(mnEditAddBoard);
-        mnEdit.add(new JMenuItem(jobPanel.removeBoardAction));
+        mnEditRemoveBoard = new JMenuItem(jobPanel.removeBoardAction);
+        mnEdit.add(mnEditRemoveBoard);
         mnEdit.addSeparator();
-        mnEdit.add(new JMenuItem(jobPanel.captureToolBoardLocationAction));
+        mnCaptureToolLocation = new JMenuItem(jobPanel.captureToolBoardLocationAction);
+        mnEdit.add(mnCaptureToolLocation);
 
         // View
         //////////////////////////////////////////////////////////////////////
@@ -431,7 +449,7 @@ public class MainFrame extends JFrame {
         buttonGroup.add(menuItem);
         mnLanguage.add(menuItem);
 
-        menuItem = new JCheckBoxMenuItem(new LanguageSelectionAction(new Locale("zh_CN")));
+        menuItem = new JCheckBoxMenuItem(new LanguageSelectionAction(new Locale("zh", "CN")));
         buttonGroup.add(menuItem);
         mnLanguage.add(menuItem);
 
@@ -667,17 +685,35 @@ public class MainFrame extends JFrame {
                     }
                 });
 
-        tabs.addTab("Job", null, jobPanel, null); //$NON-NLS-1$
-        tabs.addTab("Parts", null, partsPanel, null); //$NON-NLS-1$
-        tabs.addTab("Packages", null, packagesPanel, null); //$NON-NLS-1$
-        tabs.addTab("Vision", null, visionSettingsPanel, null); //$NON-NLS-1$
-        tabs.addTab("Feeders", null, feedersPanel, null); //$NON-NLS-1$
-        tabs.addTab("Machine Setup", null, machineSetupPanel, null); //$NON-NLS-1$
-        tabs.addTab("Issues & Solutions", null, issuesAndSolutionsPanel, null); //$NON-NLS-1$
+        tabs.addTab(Translations.getString("MainFrame.RightComponent.tabs.Job"), //$NON-NLS-1$
+                null, jobPanel, null);
+        tabs.addTab(Translations.getString("MainFrame.RightComponent.tabs.Panels"), //$NON-NLS-1$
+                null, panelsPanel, null);
+        tabs.addTab(Translations.getString("MainFrame.RightComponent.tabs.Boards" //$NON-NLS-1$
+        ),null, boardsPanel, null);
+        tabs.addTab(Translations.getString("MainFrame.RightComponent.tabs.Parts"), //$NON-NLS-1$
+                null, partsPanel, null);
+        tabs.addTab(Translations.getString("MainFrame.RightComponent.tabs.Packages" //$NON-NLS-1$
+        ),null, packagesPanel, null);
+        tabs.addTab(Translations.getString("MainFrame.RightComponent.tabs.Vision"), //$NON-NLS-1$
+                null, visionSettingsPanel, null);
+        tabs.addTab(Translations.getString("MainFrame.RightComponent.tabs.Feeders"), //$NON-NLS-1$
+                null, feedersPanel, null); //$NON-NLS-1$
+        tabs.addTab(Translations.getString("MainFrame.RightComponent.tabs.MachineSetup"), //$NON-NLS-1$
+                null, machineSetupPanel, null);
+        tabs.addTab(Translations.getString("MainFrame.RightComponent.tabs.IssuesAndSolutions"), //$NON-NLS-1$
+                null, issuesAndSolutionsPanel, null);
 
         LogPanel logPanel = new LogPanel();
-        tabs.addTab("Log", null, logPanel, null); //$NON-NLS-1$
+        tabs.addTab(Translations.getString("MainFrame.RightComponent.tabs.Log"),
+                null, logPanel, null); //$NON-NLS-1$
 
+        tabs.addChangeListener(new ChangeListener() {
+            @Override
+            public void stateChanged(ChangeEvent e) {
+                updateMenuState(tabs.getSelectedComponent());
+            }});
+        
         panelStatusAndDros = new JPanel();
         panelStatusAndDros.setBorder(null);
         contentPane.add(panelStatusAndDros, BorderLayout.SOUTH);
@@ -696,7 +732,7 @@ public class MainFrame extends JFrame {
         
         
         // Placement Information
-        lblPlacements = new JLabel(" Placements: 0 / 0 Total | 0 / 0 Selected Board "); //$NON-NLS-1$
+        lblPlacements = new JLabel(Translations.getString("MainFrame.StatusPanel.PlacementsLabel.initial.text")); //$NON-NLS-1$
         lblPlacements.setBorder(new BevelBorder(BevelBorder.LOWERED, null, null, null, null));
         panelStatusAndDros.add(lblPlacements, "4, 1"); //$NON-NLS-1$
         
@@ -719,11 +755,13 @@ public class MainFrame extends JFrame {
         droLbl.setBorder(new BevelBorder(BevelBorder.LOWERED, null, null, null, null));
         panelStatusAndDros.add(droLbl, "8, 1"); //$NON-NLS-1$
 
-        cameraPanel.setBorder(new TitledBorder(null, "Cameras", TitledBorder.LEADING, //$NON-NLS-1$
-                TitledBorder.TOP, null, null));
+        cameraPanel.setBorder(new TitledBorder(null,
+                Translations.getString("MainFrame.CameraPanel.Border.title"), //$NON-NLS-1$
+                TitledBorder.LEADING,
+                TitledBorder.TOP, null, null)); //$NON-NLS-1$
         panelCameraAndInstructions.add(cameraPanel, BorderLayout.CENTER);
 
-        registerBoardImporters();
+        addImporterMenuOptions();
 
         addComponentListener(componentListener);
         
@@ -841,44 +879,84 @@ public class MainFrame extends JFrame {
         return droLbl;
     }
 
-    private void registerBoardImporters() {
-    	registerBoardImporter(LabcenterProteusImporter.class);
-        registerBoardImporter(EagleBoardImporter.class);
-        registerBoardImporter(EagleMountsmdUlpImporter.class);
-        registerBoardImporter(KicadPosImporter.class);
-        registerBoardImporter(DipTraceImporter.class);
-        registerBoardImporter(NamedCSVImporter.class);
+    private void addImporterMenuOptions() {
+        for (BoardImporter bi : boardsPanel.getBoardPlacementsPanel().getBoardImporters()) {
+            final BoardImporter boardImporter = bi;
+            JMenuItem menuItem = new JMenuItem(new AbstractAction() {
+                {
+                    putValue(NAME, boardImporter.getImporterName());
+                    putValue(SHORT_DESCRIPTION, boardImporter.getImporterDescription());
+                    putValue(MNEMONIC_KEY, KeyEvent.VK_I);
+                }
+
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    boardsPanel.getBoardPlacementsPanel().importBoard(boardImporter.getClass());
+                }
+            });
+            mnImport.add(menuItem);
+        }
     }
+
 
     /**
-     * Register a BoardImporter with the system, causing it to gain a menu location in the
-     * File->Import menu.
-     * 
-     * @param boardImporterClass
+     * Enables/disables the Import Board, Add Board/Panel, and Remove Board(s)/Panel(s) menu items
+     * appropriately depending on which tab is selected and what is selected within the tab
+     * @param selectedTab - the selected tab
      */
-    public void registerBoardImporter(final Class<? extends BoardImporter> boardImporterClass) {
-        final BoardImporter boardImporter;
-        try {
-            boardImporter = boardImporterClass.newInstance();
+    public void updateMenuState(Component selectedTab) {
+        if (selectedTab != tabs.getSelectedComponent()) {
+            return;
         }
-        catch (Exception e) {
-            throw new Error(e);
+        if (selectedTab == jobPanel) {
+            if (jobPanel.getSelections().size() == 1 && jobPanel.getSelection() instanceof BoardLocation &&
+                    jobPanel.getJob().instanceCount(jobPanel.getSelection().getPlacementsHolder()) == 1 &&
+                    jobPanel.getJob().getRootPanelLocation().getChildren().containsAll(jobPanel.getSelections())) {
+                mnImport.setEnabled(true);
+            }
+            else {
+                mnImport.setEnabled(false);
+            }
+            mnEditAddBoard.setEnabled(true);
+            if (jobPanel.getSelections().size() >= 1) {
+                mnEditRemoveBoard.setEnabled(jobPanel.getJob().getRootPanelLocation().getChildren().
+                        containsAll(jobPanel.getSelections()));
+            }
+            else {
+                mnEditRemoveBoard.getAction().setEnabled(false);
+            }
+            if (jobPanel.getSelections().size() == 1 && jobPanel.getJob().getRootPanelLocation().getChildren().containsAll(jobPanel.getSelections()) ) {
+                mnCaptureToolLocation.setEnabled(true);
+            }
+            else {
+                mnCaptureToolLocation.setEnabled(false);
+            }
         }
-        JMenuItem menuItem = new JMenuItem(new AbstractAction() {
-            {
-                putValue(NAME, boardImporter.getImporterName());
-                putValue(SHORT_DESCRIPTION, boardImporter.getImporterDescription());
-                putValue(MNEMONIC_KEY, KeyEvent.VK_I);
+        else if (selectedTab == panelsPanel) {
+            mnImport.setEnabled(false);
+            mnEditAddBoard.setEnabled(false);
+            mnEditRemoveBoard.setEnabled(false);
+            mnCaptureToolLocation.setEnabled(false);
+        }
+        else if (selectedTab == boardsPanel) {
+            if (boardsPanel.getSelections().size() == 1) {
+                mnImport.setEnabled(true);
             }
-
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                jobPanel.importBoard(boardImporterClass);
+            else {
+                mnImport.setEnabled(false);
             }
-        });
-        mnImport.add(menuItem);
+            mnEditAddBoard.setEnabled(false);
+            mnEditRemoveBoard.setEnabled(false);
+            mnCaptureToolLocation.setEnabled(false);
+        }
+        else {
+            mnImport.setEnabled(false);
+            mnEditAddBoard.setEnabled(false);
+            mnEditRemoveBoard.setEnabled(false);
+            mnCaptureToolLocation.setEnabled(false);
+        }
     }
-
+    
     public void showInstructions(String title, String instructions, boolean showCancelButton,
             boolean showProceedButton, String proceedButtonText,
             ActionListener cancelActionListener, ActionListener proceedActionListener) {
@@ -1026,7 +1104,9 @@ public class MainFrame extends JFrame {
     
     public void setPlacementCompletionStatus(int totalPlacementsCompleted, int totalPlacements, int boardPlacementsCompleted, int boardPlacements) {
         SwingUtilities.invokeLater(() -> {
-            lblPlacements.setText(String.format(" Placements: %d / %d Total | %d / %d Selected Board ", totalPlacementsCompleted, totalPlacements, boardPlacementsCompleted, boardPlacements));
+            lblPlacements.setText(String.format(Translations.getString(
+                    "MainFrame.StatusPanel.PlacementsLabel.initial.format.text"), //$NON-NLS-1$
+                    totalPlacementsCompleted, totalPlacements, boardPlacementsCompleted, boardPlacements));
         	prgbrPlacements.setValue((int)(((float)totalPlacementsCompleted / (float)totalPlacements) * 100.0f));
         });
     }
@@ -1086,8 +1166,8 @@ public class MainFrame extends JFrame {
         @Override
         public void actionPerformed(ActionEvent arg0) {
             configuration.setSystemUnits(LengthUnit.Inches);
-          MessageBoxes.infoBox("Notice", //$NON-NLS-1$
-                  "Please restart OpenPnP for the changes to take effect."); //$NON-NLS-1$
+            MessageBoxes.infoBox(Translations.getString("CommonWords.notice"), //$NON-NLS-1$
+                  Translations.getString("CommonPhrases.restartToTakeEffect")); //$NON-NLS-1$
       }
     };
 
@@ -1099,8 +1179,8 @@ public class MainFrame extends JFrame {
         @Override
         public void actionPerformed(ActionEvent arg0) {
             configuration.setSystemUnits(LengthUnit.Millimeters);
-            MessageBoxes.infoBox("Notice", //$NON-NLS-1$
-                    "Please restart OpenPnP for the changes to take effect."); //$NON-NLS-1$
+            MessageBoxes.infoBox(Translations.getString("CommonWords.notice"), //$NON-NLS-1$
+                    Translations.getString("CommonPhrases.restartToTakeEffect")); //$NON-NLS-1$
         }
     };
 
@@ -1131,8 +1211,8 @@ public class MainFrame extends JFrame {
             else {
                 prefs.putBoolean(PREF_WINDOW_STYLE_MULTIPLE, false);
             }
-            MessageBoxes.infoBox("Windows Style Changed", //$NON-NLS-1$
-                    "Window style has been changed. Please restart OpenPnP to see the changes."); //$NON-NLS-1$
+            MessageBoxes.infoBox(Translations.getString("CommonPhrases.windowsStyleChanged"), //$NON-NLS-1$
+                    Translations.getString("CommonPhrases.windowsStyleChangedRestartToTakeEffect")); //$NON-NLS-1$
         }
     };
 
@@ -1194,72 +1274,28 @@ public class MainFrame extends JFrame {
     private Action quickStartLinkAction = new AbstractAction(Translations.getString("Menu.Help.QuickStart")) { //$NON-NLS-1$
         @Override
         public void actionPerformed(ActionEvent arg0) {
-            String uri = "https://github.com/openpnp/openpnp/wiki/Quick-Start"; //$NON-NLS-1$
-            try {
-                if (Desktop.isDesktopSupported()) {
-                    Desktop.getDesktop().browse(new URI(uri));
-                }
-                else {
-                    throw new Exception("Not supported."); //$NON-NLS-1$
-                }
-            }
-            catch (Exception e) {
-                MessageBoxes.errorBox(MainFrame.this, "Unable to launch default browser.", "Unable to launch default browser. Please visit " + uri); //$NON-NLS-1$ //$NON-NLS-2$
-            }
+            UiUtils.browseUri("https://github.com/openpnp/openpnp/wiki/Quick-Start"); //$NON-NLS-1$
         }
     };
     
     private Action setupAndCalibrationLinkAction = new AbstractAction(Translations.getString("Menu.Help.SetupAndCalibration")) { //$NON-NLS-1$
         @Override
         public void actionPerformed(ActionEvent arg0) {
-            String uri = "https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration"; //$NON-NLS-1$
-            try {
-                if (Desktop.isDesktopSupported()) {
-                    Desktop.getDesktop().browse(new URI(uri));
-                }
-                else {
-                    throw new Exception("Not supported."); //$NON-NLS-1$
-                }
-            }
-            catch (Exception e) {
-                MessageBoxes.errorBox(MainFrame.this, "Unable to launch default browser.", "Unable to launch default browser. Please visit " + uri); //$NON-NLS-1$ //$NON-NLS-2$
-            }
+            UiUtils.browseUri("https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration"); //$NON-NLS-1$
         }
     };
     
     private Action userManualLinkAction = new AbstractAction(Translations.getString("Menu.Help.UserManual")) { //$NON-NLS-1$
         @Override
         public void actionPerformed(ActionEvent arg0) {
-            String uri = "https://github.com/openpnp/openpnp/wiki/User-Manual"; //$NON-NLS-1$
-            try {
-                if (Desktop.isDesktopSupported()) {
-                    Desktop.getDesktop().browse(new URI(uri));
-                }
-                else {
-                    throw new Exception("Not supported."); //$NON-NLS-1$
-                }
-            }
-            catch (Exception e) {
-                MessageBoxes.errorBox(MainFrame.this, "Unable to launch default browser.", "Unable to launch default browser. Please visit " + uri); //$NON-NLS-1$ //$NON-NLS-2$
-            }
+            UiUtils.browseUri("https://github.com/openpnp/openpnp/wiki/User-Manual"); //$NON-NLS-1$
         }
     };
     
     private Action changeLogAction = new AbstractAction(Translations.getString("Menu.Help.ChangeLog")) { //$NON-NLS-1$
         @Override
         public void actionPerformed(ActionEvent arg0) {
-            String uri = "https://github.com/openpnp/openpnp/blob/develop/CHANGES.md"; //$NON-NLS-1$
-            try {
-                if (Desktop.isDesktopSupported()) {
-                    Desktop.getDesktop().browse(new URI(uri));
-                }
-                else {
-                    throw new Exception("Not supported."); //$NON-NLS-1$
-                }
-            }
-            catch (Exception e) {
-                MessageBoxes.errorBox(MainFrame.this, "Unable to launch default browser.", "Unable to launch default browser. Please visit " + uri); //$NON-NLS-1$ //$NON-NLS-2$
-            }
+            UiUtils.browseUri(Main.getSourceUri()+"CHANGES.md"); //$NON-NLS-1$
         }
     };
     
@@ -1274,7 +1310,7 @@ public class MainFrame extends JFrame {
         }
     };
     
-    public final Action undoAction = new AbstractAction(Translations.getString("Menu.Edit.Undo")) {
+    public final Action undoAction = new AbstractAction(Translations.getString("Menu.Edit.Undo")) { //$NON-NLS-1$
         {
             putValue(MNEMONIC_KEY, KeyEvent.VK_Z);
             putValue(ACCELERATOR_KEY, KeyStroke.getKeyStroke('Z',
@@ -1292,7 +1328,7 @@ public class MainFrame extends JFrame {
         }
     };
     
-    public final Action redoAction = new AbstractAction(Translations.getString("Menu.Edit.Redo")) {
+    public final Action redoAction = new AbstractAction(Translations.getString("Menu.Edit.Redo")) { //$NON-NLS-1$
         {
 //            putValue(MNEMONIC_KEY, KeyEvent.VK_Y);
             putValue(ACCELERATOR_KEY, KeyStroke.getKeyStroke('Z',
@@ -1323,9 +1359,9 @@ public class MainFrame extends JFrame {
         }
         
         public void actionPerformed(ActionEvent arg0) {
-          configuration.setLocale(locale);
-          MessageBoxes.infoBox("Notice", //$NON-NLS-1$
-                  "Please restart OpenPnP for the changes to take effect."); //$NON-NLS-1$
+            configuration.setLocale(locale);
+            MessageBoxes.infoBox(Translations.getString("CommonWords.notice"), //$NON-NLS-1$
+                    Translations.getString("CommonPhrases.restartToTakeEffect")); //$NON-NLS-1$
       }
     }
     

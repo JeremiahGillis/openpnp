@@ -9,6 +9,7 @@ import javax.swing.SwingConstants;
 import javax.swing.border.TitledBorder;
 
 import org.jdesktop.beansbinding.AutoBinding.UpdateStrategy;
+import org.openpnp.Translations;
 import org.openpnp.gui.MainFrame;
 import org.openpnp.gui.components.ComponentDecorators;
 import org.openpnp.gui.components.LocationButtonsPanel;
@@ -34,6 +35,10 @@ public class ReferenceMachineConfigurationWizard extends AbstractConfigurationWi
     private JTextField discardYTf;
     private JTextField discardZTf;
     private JTextField discardCTf;
+    private JTextField defaultBoardXTf;
+    private JTextField defaultBoardYTf;
+    private JTextField defaultBoardZTf;
+    private JTextField defaultBoardCTf;
     private JComboBox motionPlannerClass;
     private boolean reloadWizard;
     private JCheckBox autoToolSelect;
@@ -47,20 +52,17 @@ public class ReferenceMachineConfigurationWizard extends AbstractConfigurationWi
 
         JPanel panelGeneral = new JPanel();
         contentPanel.add(panelGeneral);
-        panelGeneral.setBorder(new TitledBorder(null, "General", TitledBorder.LEADING,
-                TitledBorder.TOP, null, null));
+        panelGeneral.setBorder(new TitledBorder(null, Translations.getString(
+                "ReferenceMachineConfigurationWizard.PanelGeneral.Border.title"), //$NON-NLS-1$
+                TitledBorder.LEADING, TitledBorder.TOP, null, null));
         panelGeneral.setLayout(new FormLayout(new ColumnSpec[] {
                 FormSpecs.RELATED_GAP_COLSPEC,
                 ColumnSpec.decode("max(70dlu;default)"),
                 FormSpecs.RELATED_GAP_COLSPEC,
                 FormSpecs.DEFAULT_COLSPEC,
                 FormSpecs.RELATED_GAP_COLSPEC,
-                FormSpecs.DEFAULT_COLSPEC,},
+                ColumnSpec.decode("default:grow"),},
             new RowSpec[] {
-                FormSpecs.RELATED_GAP_ROWSPEC,
-                FormSpecs.DEFAULT_ROWSPEC,
-                FormSpecs.RELATED_GAP_ROWSPEC,
-                FormSpecs.DEFAULT_ROWSPEC,
                 FormSpecs.RELATED_GAP_ROWSPEC,
                 FormSpecs.DEFAULT_ROWSPEC,
                 FormSpecs.RELATED_GAP_ROWSPEC,
@@ -76,56 +78,65 @@ public class ReferenceMachineConfigurationWizard extends AbstractConfigurationWi
                 FormSpecs.RELATED_GAP_ROWSPEC,
                 FormSpecs.DEFAULT_ROWSPEC,}));
         
-        JLabel lblHomeAfterEnabled = new JLabel("Home after enabled?");
+        JLabel lblHomeAfterEnabled = new JLabel(Translations.getString(
+                "ReferenceMachineConfigurationWizard.PanelGeneral.HomeAfterEnabledLabel.text")); //$NON-NLS-1$
         panelGeneral.add(lblHomeAfterEnabled, "2, 2, right, default");
         
         checkBoxHomeAfterEnabled = new JCheckBox("");
         panelGeneral.add(checkBoxHomeAfterEnabled, "4, 2");
         
-        JLabel lblParkAfterHomed = new JLabel("Park after homed?");
+        JLabel lblParkAfterHomed = new JLabel(Translations.getString(
+                "ReferenceMachineConfigurationWizard.PanelGeneral.ParkAfterHomedLabel.text")); //$NON-NLS-1$
         panelGeneral.add(lblParkAfterHomed, "2, 4, right, default");
         
         parkAfterHomed = new JCheckBox("");
         panelGeneral.add(parkAfterHomed, "4, 4");
         
-        JLabel lblParkAllAtSafeZ = new JLabel("Park all at Safe Z?");
-        lblParkAllAtSafeZ.setToolTipText("When the Z Park button is pressed, move all tools mounted on the same head to safe Z.");
+        JLabel lblParkAllAtSafeZ = new JLabel(Translations.getString(
+                "ReferenceMachineConfigurationWizard.PanelGeneral.ParkAllAtSafeZLabel.text")); //$NON-NLS-1$
+        lblParkAllAtSafeZ.setToolTipText(Translations.getString(
+                "ReferenceMachineConfigurationWizard.PanelGeneral.ParkAllAtSafeZLabel.toolTipText")); //$NON-NLS-1$
         panelGeneral.add(lblParkAllAtSafeZ, "2, 6, right, default");
         
         safeZPark = new JCheckBox("");
         panelGeneral.add(safeZPark, "4, 6");
         
-        JLabel lblAutoToolSelect = new JLabel("Auto tool select?");
-        panelGeneral.add(lblAutoToolSelect, "2, 10, right, default");
+        JLabel lblAutoToolSelect = new JLabel(Translations.getString(
+                "ReferenceMachineConfigurationWizard.PanelGeneral.AutoToolSelectLabel.text")); //$NON-NLS-1$
+        lblAutoToolSelect.setToolTipText(Translations.getString("ReferenceMachineConfigurationWizard.lblAutoToolSelect.toolTipText")); //$NON-NLS-1$
+        panelGeneral.add(lblAutoToolSelect, "2, 8, right, default");
         
         autoToolSelect = new JCheckBox("");
-        panelGeneral.add(autoToolSelect, "4, 10");
+        panelGeneral.add(autoToolSelect, "4, 8");
         
-        JLabel lblNewLabel = new JLabel("Unsafe Z Roaming");
+        JLabel lblNewLabel = new JLabel(Translations.getString(
+                "ReferenceMachineConfigurationWizard.PanelGeneral.UnsafeZRoamingLabel.text")); //$NON-NLS-1$
         lblNewLabel.setToolTipText("<html>Maximum allowable roaming distance at unsafe Z.<br/><br/>\r\nVirtual Z axes (typically on cameras) are invisible, therefore it can easily be overlooked<br/>\r\nthat you are at unsafe Z. When you later press the <strong>Move tool to camera location</strong><br/>\r\nbutton, an unexpected Z down-move will result, potentially crashing the tool.<br/>\r\nThe maximum allowable roaming distance at unsafe Z therefore limits the jogging area<br/>\r\nwithin which an unsafe virtual Z is kept, it should be enough to fine-adjust a captured<br/>\r\nlocation. Jogging further away will automatically move the virtual axis to Safe Z.\r\n</html>");
-        panelGeneral.add(lblNewLabel, "2, 12, right, default");
+        panelGeneral.add(lblNewLabel, "2, 10, right, default");
         
         unsafeZRoamingDistance = new JTextField();
-        panelGeneral.add(unsafeZRoamingDistance, "4, 12, fill, default");
+        panelGeneral.add(unsafeZRoamingDistance, "4, 10, left, default");
         unsafeZRoamingDistance.setColumns(10);
         
-        JLabel lblMotionPlanning = new JLabel("Motion Planning");
-        panelGeneral.add(lblMotionPlanning, "2, 16, right, default");
+        JLabel lblMotionPlanning = new JLabel(Translations.getString(
+                "ReferenceMachineConfigurationWizard.PanelGeneral.MotionPlanningLabel.text")); //$NON-NLS-1$
+        panelGeneral.add(lblMotionPlanning, "2, 12, right, default");
 
         Object[] classNames = machine.getCompatibleMotionPlannerClasses().stream()
         .map(c -> c.getSimpleName()).toArray();
         motionPlannerClass = new JComboBox(classNames);
-        panelGeneral.add(motionPlannerClass, "4, 16, fill, default");
+        panelGeneral.add(motionPlannerClass, "4, 12, fill, default");
         
         JLabel lblPoolScriptingEngines = new JLabel("Pool scripting engines?");
-        panelGeneral.add(lblPoolScriptingEngines, "2, 18, right, default");
+        panelGeneral.add(lblPoolScriptingEngines, "2, 14, right, default");
 
         poolScriptingEngines = new JCheckBox("");
-        panelGeneral.add(poolScriptingEngines, "4, 18");
+        panelGeneral.add(poolScriptingEngines, "4, 14");
 
                 JPanel panelLocations = new JPanel();
-        panelLocations.setBorder(new TitledBorder(null, "Locations", TitledBorder.LEADING,
-                TitledBorder.TOP, null, null));
+        panelLocations.setBorder(new TitledBorder(null, Translations.getString(
+                "ReferenceMachineConfigurationWizard.PanelLocations.Border.title"), //$NON-NLS-1$
+                TitledBorder.LEADING, TitledBorder.TOP, null, null));
         contentPanel.add(panelLocations);
         panelLocations.setLayout(new FormLayout(new ColumnSpec[] {
                 FormSpecs.RELATED_GAP_COLSPEC,
@@ -144,6 +155,8 @@ public class ReferenceMachineConfigurationWizard extends AbstractConfigurationWi
                 FormSpecs.RELATED_GAP_ROWSPEC,
                 FormSpecs.DEFAULT_ROWSPEC,
                 FormSpecs.RELATED_GAP_ROWSPEC,
+                FormSpecs.DEFAULT_ROWSPEC,
+                FormSpecs.RELATED_GAP_ROWSPEC,
                 FormSpecs.DEFAULT_ROWSPEC,}));
         
                 JLabel lblX = new JLabel("X");
@@ -158,11 +171,13 @@ public class ReferenceMachineConfigurationWizard extends AbstractConfigurationWi
         panelLocations.add(lblZ, "8, 2");
         lblZ.setHorizontalAlignment(SwingConstants.CENTER);
         
-                JLabel lblRotation = new JLabel("Rotation");
+                JLabel lblRotation = new JLabel(Translations.getString(
+                        "ReferenceMachineConfigurationWizard.PanelLocations.RotationLabel.text")); //$NON-NLS-1$
         panelLocations.add(lblRotation, "10, 2");
         lblRotation.setHorizontalAlignment(SwingConstants.CENTER);
         
-                JLabel lblDiscardPoint = new JLabel("Discard Location");
+                JLabel lblDiscardPoint = new JLabel(Translations.getString(
+                        "ReferenceMachineConfigurationWizard.PanelLocations.DiscardLocationLabel.text")); //$NON-NLS-1$
         panelLocations.add(lblDiscardPoint, "2, 4");
         
                 discardXTf = new JTextField();
@@ -181,9 +196,33 @@ public class ReferenceMachineConfigurationWizard extends AbstractConfigurationWi
         panelLocations.add(discardCTf, "10, 4");
         discardCTf.setColumns(5);
         
-                LocationButtonsPanel locationButtonsPanel =
+                LocationButtonsPanel discardLocationButtonsPanel =
                         new LocationButtonsPanel(discardXTf, discardYTf, discardZTf, discardCTf);
-        panelLocations.add(locationButtonsPanel, "12, 4");
+        panelLocations.add(discardLocationButtonsPanel, "12, 4");
+
+		        JLabel lblDefaultBoardPoint = new JLabel(Translations.getString(
+		                "ReferenceMachineConfigurationWizard.PanelLocations.DefaultBoardLocationLabel.text")); //$NON-NLS-1$
+		panelLocations.add(lblDefaultBoardPoint, "2, 6");
+		
+		        defaultBoardXTf = new JTextField();
+		panelLocations.add(defaultBoardXTf, "4, 6");
+		defaultBoardXTf.setColumns(5);
+		
+		        defaultBoardYTf = new JTextField();
+		panelLocations.add(defaultBoardYTf, "6, 6");
+		defaultBoardYTf.setColumns(5);
+		
+		        defaultBoardZTf = new JTextField();
+		panelLocations.add(defaultBoardZTf, "8, 6");
+		defaultBoardZTf.setColumns(5);
+		
+		        defaultBoardCTf = new JTextField();
+		panelLocations.add(defaultBoardCTf, "10, 6");
+		defaultBoardCTf.setColumns(5);
+		
+		        LocationButtonsPanel defaultBoardLocationButtonsPanel =
+		                new LocationButtonsPanel(defaultBoardXTf, defaultBoardYTf, defaultBoardZTf, defaultBoardCTf);
+		panelLocations.add(defaultBoardLocationButtonsPanel, "12, 6");
     }
 
     @Override
@@ -215,6 +254,19 @@ public class ReferenceMachineConfigurationWizard extends AbstractConfigurationWi
         ComponentDecorators.decorateWithAutoSelectAndLengthConversion(discardYTf);
         ComponentDecorators.decorateWithAutoSelectAndLengthConversion(discardZTf);
         ComponentDecorators.decorateWithAutoSelectAndLengthConversion(discardCTf);
+
+        MutableLocationProxy defaultBoardLocation = new MutableLocationProxy();
+        bind(UpdateStrategy.READ_WRITE, machine, "defaultBoardLocation", defaultBoardLocation, "location");
+        addWrappedBinding(defaultBoardLocation, "lengthX", defaultBoardXTf, "text", lengthConverter);
+        addWrappedBinding(defaultBoardLocation, "lengthY", defaultBoardYTf, "text", lengthConverter);
+        addWrappedBinding(defaultBoardLocation, "lengthZ", defaultBoardZTf, "text", lengthConverter);
+        addWrappedBinding(defaultBoardLocation, "rotation", defaultBoardCTf, "text", doubleConverter);
+
+        ComponentDecorators.decorateWithAutoSelectAndLengthConversion(unsafeZRoamingDistance);
+        ComponentDecorators.decorateWithAutoSelectAndLengthConversion(defaultBoardXTf);
+        ComponentDecorators.decorateWithAutoSelectAndLengthConversion(defaultBoardYTf);
+        ComponentDecorators.decorateWithAutoSelectAndLengthConversion(defaultBoardZTf);
+        ComponentDecorators.decorateWithAutoSelectAndLengthConversion(defaultBoardCTf);
     }
 
     public String getMotionPlannerClassName() {

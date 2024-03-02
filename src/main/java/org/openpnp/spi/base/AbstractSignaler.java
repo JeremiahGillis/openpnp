@@ -7,6 +7,7 @@ import javax.swing.Action;
 import javax.swing.Icon;
 import javax.swing.JOptionPane;
 
+import org.openpnp.Translations;
 import org.openpnp.gui.MainFrame;
 import org.openpnp.gui.support.Icons;
 import org.openpnp.gui.support.PropertySheetWizardAdapter;
@@ -30,9 +31,6 @@ public abstract class AbstractSignaler extends AbstractModelObject implements Si
         this.id = Configuration.createId("SIG");
         this.name = getClass().getSimpleName();
     }
-
-    @Override
-    public void signalMachineState(AbstractMachine.State state) {}
 
     @Override
     public void signalJobProcessorState(AbstractJobProcessor.State state) {}
@@ -83,17 +81,20 @@ public abstract class AbstractSignaler extends AbstractModelObject implements Si
     }
     
     public Action deleteAction = new AbstractAction("Delete Signaler") {
+        private static final long serialVersionUID = 1L;
+
         {
             putValue(SMALL_ICON, Icons.delete);
             putValue(NAME, "Delete Signaler");
-            putValue(SHORT_DESCRIPTION, "Delete the currently selected signaler.");
+            putValue(SHORT_DESCRIPTION, Translations.getString("AbstractSignaler.Action.Delete.Description")); //$NON-NLS-1$
         }
 
         @Override
         public void actionPerformed(ActionEvent arg0) {
             int ret = JOptionPane.showConfirmDialog(MainFrame.get(),
-                    "Are you sure you want to delete " + getName() + "?",
-                    "Delete " + getName() + "?", JOptionPane.YES_NO_OPTION);
+                    Translations.getString("DialogMessages.ConfirmDelete.text") + " " + getName() + "?", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    Translations.getString("DialogMessages.ConfirmDelete.title") + " " + getName() + "?", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    JOptionPane.YES_NO_OPTION);
             if (ret == JOptionPane.YES_OPTION) {
                 Configuration.get().getMachine().removeSignaler(AbstractSignaler.this);
             }

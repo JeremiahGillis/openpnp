@@ -24,6 +24,7 @@ package org.openpnp.machine.reference.solutions;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 
+import org.openpnp.Translations;
 import org.openpnp.gui.support.Icons;
 import org.openpnp.machine.reference.ReferenceActuator;
 import org.openpnp.machine.reference.ReferenceHead;
@@ -85,9 +86,9 @@ public class HeadSolutions implements Solutions.Subject {
             final Camera theCamera = camera;
             if (isDefaultHead && solutions.isTargeting(Milestone.Welcome)) { 
                 solutions.add(new Solutions.Issue(
-                        head, 
-                        "Create nozzles for this head.", 
-                        "Choose the number and type of your nozzles.", 
+                        head,
+                        Translations.getString("HeadSolutions.Issue.CreateNozzles"), //$NON-NLS-1$
+                        Translations.getString("HeadSolutions.Solution.CreateNozzles"), //$NON-NLS-1$
                         Solutions.Severity.Fundamental,
                         "https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration%3A-Nozzle-Setup") {
 
@@ -129,19 +130,8 @@ public class HeadSolutions implements Solutions.Subject {
                     @Override
                     public void setState(Solutions.State state) throws Exception {
                         if (state == State.Solved) {
-                            if (solutions.confirm("<html>"
-                                    + "<p>Accepting this solution may change your machine configuration fundamentally.<br/>"
-                                    + "The following will happen:<p/>"
-                                    + "<ol>"
-                                    + "<li>The current machine configuration is saved (same as File/Save Configuration).</li>"
-                                    + "<li>The new solution overwrites your existing nozzle and axis configuration.</li>"
-                                    + "<li>As far as nozzles, actuators and axes remain the same type and count, their detail configuration is preserved (except for names).</li>"
-                                    + "<li>A nozzle solution can be applied multiple times, you can revisit and expand it.</li>"
-                                    + "<li><span color=\"red\">Caution:</span> Reopen will not restore the previous configuration, only enable a fresh choice.<br/>"
-                                    + "If you want to restore previous configuration you must restore the saved configuration manually.</li>"
-                                    + "</ol>"
-                                    + "<br/>"
-                                    +"Are you sure?</html>", true)) {
+                            if (solutions.confirm(Translations.getString(
+                                    "HeadSolutions.Issue.CreateNozzles.Confirm"), true)) { //$NON-NLS-1$
                                 createNozzleSolution(theCamera, (NozzleSolution) getChoice(), multiplier);
                                 // Remember this is solved (it can be revisited).
                                 solutions.setSolutionsIssueSolved(this, true);
@@ -160,9 +150,11 @@ public class HeadSolutions implements Solutions.Subject {
                     public Solutions.Issue.CustomProperty[] getProperties() {
                         return new Solutions.Issue.CustomProperty[] {
                                 new Solutions.Issue.IntegerProperty(
-                                        "Number of Nozzle Units",
-                                        "The Number of Nozzles or Pairs of Nozzles",
-                                        1, 8) {
+                                        Translations.getString(
+                                                "HeadSolutions.Solution.CreateNozzles.NumberOfNozzlesLabel.text"), //$NON-NLS-1$
+                                        Translations.getString(
+                                                "HeadSolutions.Solution.CreateNozzles.NumberOfNozzlesLabel.toolTipText" //$NON-NLS-1$
+                                        ), 1, 8) {
                                     @Override
                                     public int get() {
                                         return multiplier;
@@ -176,40 +168,31 @@ public class HeadSolutions implements Solutions.Subject {
                     }
                     @Override
                     public Solutions.Issue.Choice[] getChoices() {
-                        return new Solutions.Issue.Choice[] {
-                                new Solutions.Issue.Choice(NozzleSolution.Standalone, 
-                                        "<html><h3>Standalone Nozzle</h3>"
-                                                + "<p>A nozzle has its own dedicated Z axis motor</p>"
-                                                + "</html>",
-                                                Icons.nozzleSingle),
-                                new Solutions.Issue.Choice(NozzleSolution.DualNegated, 
-                                        "<html><h3>Nozzle Pair, Shared Z Axis, Negated</h3>"
-                                                + "<p>A nozzle pair shares a Z axis motor. "
-                                                + "When the first nozzle moves up, then second one moves down equally. "
-                                                + "The nozzles are negatively coupled by rack and pinion or belt.</p>"
-                                                + "</html>",
-                                                Icons.nozzleDualNeg),
-                                new Solutions.Issue.Choice(NozzleSolution.DualCam, 
-                                        "<html><h3>Nozzle Pair, Shared Z Axis, Cam</h3>"
-                                                + "<p>A nozzle pair shares a Z axis motor. "
-                                                + "The two nozzles are pushed down by a rotational cam, pulled up with a spring.</p>"
-                                                + "</html>",
-                                                Icons.nozzleDualCam),
+                        return new Solutions.Issue.Choice[]{
+                                new Solutions.Issue.Choice(NozzleSolution.Standalone, Translations.getString(
+                                        "HeadSolutions.Solution.CreateNozzles.Choice.0"), //$NON-NLS-1$
+                                        Icons.nozzleSingle),
+                                new Solutions.Issue.Choice(NozzleSolution.DualNegated, Translations.getString(
+                                        "HeadSolutions.Solution.CreateNozzles.Choice.1"), //$NON-NLS-1$
+                                        Icons.nozzleDualNeg),
+                                new Solutions.Issue.Choice(NozzleSolution.DualCam, Translations.getString(
+                                        "HeadSolutions.Solution.CreateNozzles.Choice.2"), //$NON-NLS-1$
+                                        Icons.nozzleDualCam),
                         };
                     }
                 });
             }
             if (solutions.isTargeting(Milestone.Basics)) {
-                if (camera.getAxisX() == null) {
+                if (camera.getAxisX() == null || camera.getAxisX() instanceof ReferenceVirtualAxis) {
                     addMissingAxisIssue(solutions, camera, Axis.Type.X);
                 }
-                if (camera.getAxisY() == null) {
+                if (camera.getAxisY() == null || camera.getAxisY() instanceof ReferenceVirtualAxis) {
                     addMissingAxisIssue(solutions, camera, Axis.Type.Y);
                 }
-                if (camera.getAxisZ() == null) {
+                if (!(camera.getAxisZ() instanceof ReferenceVirtualAxis)) {
                     addMissingAxisIssue(solutions, camera, Axis.Type.Z);
                 }
-                if (camera.getAxisRotation() == null) {
+                if (!(camera.getAxisRotation() instanceof ReferenceVirtualAxis)) {
                     addMissingAxisIssue(solutions, camera, Axis.Type.Rotation);
                 }
                 if (camera.getAxisX() != null && camera.getAxisY() != null) {
@@ -233,6 +216,13 @@ public class HeadSolutions implements Solutions.Subject {
     }
 
     protected void perNozzleSolutions(Solutions solutions, Nozzle nozzle) {
+        if (nozzle.getAxisZ() instanceof ReferenceVirtualAxis) {
+            addMissingAxisIssue(solutions, nozzle, Axis.Type.Z);
+        }
+        if (nozzle.getAxisRotation() instanceof ReferenceVirtualAxis) {
+            addMissingAxisIssue(solutions, nozzle, Axis.Type.Rotation);
+        }
+
         if (nozzle.getAxisZ() == null) {
             solutions.add(new Solutions.PlainIssue(
                     nozzle, 
@@ -300,16 +290,19 @@ public class HeadSolutions implements Solutions.Subject {
             }
         });
     }
-    protected void addMissingAxisIssue(Solutions solutions, final Camera camera, Axis.Type type) {
+    protected void addMissingAxisIssue(Solutions solutions, final HeadMountable hm, Axis.Type type) {
         // Find a default axis.
-        AbstractAxis suggestedAxis;
+        AbstractAxis suggestedAxis = null;
         boolean isNewAxis = false;
         boolean isXY = (type == Type.X || type == Type.Y);
-        if (isXY) {
-            suggestedAxis = head.getMachine().getDefaultAxis(type);
+        boolean isPhysical = (isXY || !(hm instanceof Camera));
+        if (isPhysical) {
+            if (isXY) {
+                suggestedAxis = head.getMachine().getDefaultAxis(type);
+            }
         }
         else {
-            suggestedAxis = null;
+            // Get a virtual axis.
             for (Axis axisCand : head.getMachine().getAxes()) {
                 if (axisCand.getType() == type && axisCand instanceof ReferenceVirtualAxis) {
                     suggestedAxis = (AbstractAxis) axisCand;
@@ -320,27 +313,28 @@ public class HeadSolutions implements Solutions.Subject {
                 ReferenceVirtualAxis virtualAxis = new ReferenceVirtualAxis();
                 isNewAxis = true;
                 virtualAxis.setType(type);
-                virtualAxis.setName(type+" "+camera.getName());
+                virtualAxis.setName(type+" "+hm.getName());
                 suggestedAxis = virtualAxis;
             }
         }
         final AbstractAxis axis = suggestedAxis;
         final boolean isNew = isNewAxis;
+        final Axis oldAxis = hm.getAxis(type);
         solutions.add(new Solutions.Issue(
-                camera, 
-                (isXY ? 
-                        "Missing "+type.name()+" axis assignment. Assign one to continue.":
-                            "Virtual "+type.name()+" axis recommended for camera "+camera.getName()+"."), 
+                hm, 
+                (oldAxis == null ? 
+                        "Missing "+type.name()+" axis assignment. Assign one to continue." :
+                            oldAxis.getClass().getSimpleName()+" "+oldAxis.getName()+" assigned as "+type.name()+" has wrong type."), 
                 (axis == null ? 
                         "Create and assign a "+type.name()+" axis manually."  
                         : "Assign "+(isNew ? "new " : "existing ")+axis.getClass().getSimpleName()+" "+axis.getName()+" as "+type.name()+"."), 
-                isXY ? Severity.Fundamental : Severity.Suggestion,
+                (isPhysical || oldAxis != null) ? Severity.Error : Severity.Warning,
                 "https://github.com/openpnp/openpnp/wiki/Mapping-Axes") {
 
             @Override
             public void setState(Solutions.State state) throws Exception {
-                ((AbstractHeadMountable) camera).setAxis(
-                        ((AbstractAxis)(state == State.Solved ? axis : null)),
+                ((AbstractHeadMountable) hm).setAxis(
+                        ((AbstractAxis)(state == State.Solved ? axis : oldAxis)),
                         type);
                 if (isNew) {
                     try {

@@ -89,6 +89,16 @@ public interface MotionPlanner extends PropertySheetHolder, Solutions.Subject {
     public void home() throws Exception;
 
     /**
+     * Mark the motion planner and underlying drivers as unhomed.
+     */
+    public void unhome();
+
+    /**
+     * @return true when the motion planner has homed all drivers.
+     */
+    boolean isHomed();
+
+    /**
      * Set the current physical or virtual axis positions to be reinterpreted as the specified coordinates. 
      * Used after visual homing and to reset a rotation angle after it has wrapped around. 
      * 
@@ -209,4 +219,10 @@ public interface MotionPlanner extends PropertySheetHolder, Solutions.Subject {
      * @return true if the location is valid, i.e. inside soft limits etc.
      */
     public boolean isValidLocation(HeadMountable hm, AxesLocation axesLocation);
+
+    /**
+     * @return The allowable minimum speed factor for motion planning. Limits the required
+     * precision for computations, interpolation, and decimal encoding in textual form (e.g. G-code).
+     */
+    double getMinimumSpeed();
 }
