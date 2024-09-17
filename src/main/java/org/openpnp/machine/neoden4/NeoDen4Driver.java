@@ -949,7 +949,7 @@ public class NeoDen4Driver extends AbstractReferenceDriver {
             Logger.debug("waitForCompletion");
         }
         
-        if(vibrationStopTime != 0)
+        while(vibrationStopTime != 0)
         {
             if(System.currentTimeMillis() >= vibrationStopTime)
             {
