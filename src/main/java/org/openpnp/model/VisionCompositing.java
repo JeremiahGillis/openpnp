@@ -20,6 +20,7 @@
  */
 
 package org.openpnp.model;
+import org.pmw.tinylog.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -749,6 +750,10 @@ public class VisionCompositing extends AbstractModelObject{
             return locationAndRotation;
         }
 
+        public double getMaxPadRadius() {
+            return maxPadRadius;
+        }
+
         public List<Footprint.Pad> getRectifiedPads() {
             if (rectifiedPads == null) {
                 return null;
@@ -795,7 +800,8 @@ public class VisionCompositing extends AbstractModelObject{
         private final double invHypot = 1/Math.hypot(1, 1); 
         private final double[] xOctogonalHullSign = new double[] { -invHypot,  0, +invHypot, -1, +1, -invHypot,  0, +invHypot };
         private final double[] yOctogonalHullSign = new double[] { -invHypot, -1, -invHypot,  0,  0, +invHypot, +1, +invHypot };
-        
+
+        private double maxPadRadius = 0;
         private double octogonalHull[] = new double[8]; 
         private LengthConverter lengthConverter = new LengthConverter();
 
@@ -1023,6 +1029,10 @@ public class VisionCompositing extends AbstractModelObject{
          * @param pad
          */
         protected void addPadToOctogalHull(Footprint.Pad pad) {
+            for (Point pt : pad.corners()) {
+                double r = Math.hypot(pt.x, pt.y);
+                maxPadRadius = Math.max(maxPadRadius, r);
+            }
             for (int i = 0; i < 8; i++) {
                 double h = pad.getX()*xOctogonalHullSign[i] + pad.getWidth()*Math.abs(xOctogonalHullSign[i])*0.5
                          + pad.getY()*yOctogonalHullSign[i] + pad.getHeight()*Math.abs(yOctogonalHullSign[i])*0.5;
@@ -1421,7 +1431,7 @@ public class VisionCompositing extends AbstractModelObject{
             }
         }
 
-        public void interpret() {
+        public void interpret() throws Exception {
             if (!compositingSolution.isAdvanced()) {
                 return;
             }
@@ -1459,9 +1469,9 @@ public class VisionCompositing extends AbstractModelObject{
                             double distance = diff.distance();
                             double dx = Math.abs(corner.diagonalBuddy.getX() - corner.getX());
                             double dy = Math.abs(corner.diagonalBuddy.getY() - corner.getY());
-                            xScaleSum += distance;
+                            xScaleSum += distance / Math.sqrt(2);
                             xScaleWeights += dx;
-                            yScaleSum += distance;
+                            yScaleSum += distance / Math.sqrt(2);
                             yScaleWeights += dy;
                         }
                     }
@@ -1479,6 +1489,13 @@ public class VisionCompositing extends AbstractModelObject{
                                 .add(point3)
                                 .add(point4);
                         centerWeights += 4;
+                        Point mid12 = point1.add(point2).multiply(0.5);
+                        Point mid34 = point3.add(point4).multiply(0.5);
+                        Point diff = mid34.subtract(mid12);
+                        double distance = diff.distance();
+                        double dy = Math.abs(corner.ySymmetricBuddy.getY() - corner.getY());
+                        yScaleSum += distance;
+                        yScaleWeights += dy;
                     }
                 }
                 // Pair of mirrors in X
@@ -1494,6 +1511,13 @@ public class VisionCompositing extends AbstractModelObject{
                                 .add(point3)
                                 .add(point4);
                         centerWeights += 4;
+                        Point mid12 = point1.add(point2).multiply(0.5);
+                        Point mid34 = point3.add(point4).multiply(0.5);
+                        Point diff = mid34.subtract(mid12);
+                        double distance = diff.distance();
+                        double dx = Math.abs(corner.xSymmetricBuddy.getX() - corner.getX());
+                        xScaleSum += distance;
+                        xScaleWeights += dx;
                     }
                 }
                 // Aligned in X
@@ -1529,16 +1553,28 @@ public class VisionCompositing extends AbstractModelObject{
                 }
             }
             // Evaluate the stats.
+            if(centerWeights==0) { // divide by zero ahead!
+                throw new Exception("Unable to calculate center from composite vision for package "+pkg.getId());
+            }
+            if(angleWeights==0) {
+                throw new Exception("Unable to calculate angle from composite vision for package "+pkg.getId());
+            }
             detectedCenter = centerSum.divide(centerWeights);
             detectedAngle = angleSum/angleWeights;
             detectedAngle += Math.round((expectedAngle - detectedAngle)/90)*90;
+            if(xScaleWeights==0) {
+                xScaleSum = xScaleWeights = 1.0; // We can not adjust x scale
+            }
+            if(yScaleWeights==0) {
+                yScaleSum = yScaleWeights = 1.0;
+            }
             detectedScale = new Point(
                     xScaleSum/xScaleWeights, 
                     yScaleSum/yScaleWeights); 
             detectedSize = new Point(
                     detectedScale.x*Math.max(-leftEdges.first(), rightEdges.last())*2,
                     detectedScale.y*Math.max(-bottomEdges.first(), topEdges.last())*2);
-            // For pipeline result compatibility, make the RotatedRect in OpenCv pixel coordinates. 
+            // For pipeline result compatibility, make the RotatedRect in OpenCv pixel coordinates.
             double angle = VisionUtils.getPixelAngle(camera, detectedAngle);
             org.opencv.core.Point center = new org.opencv.core.Point(
                     camera.getWidth()*0.5 + detectedCenter.x/upp.getX(), 

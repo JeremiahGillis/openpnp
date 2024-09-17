@@ -38,6 +38,7 @@ import org.openpnp.machine.neoden4.Neoden4Camera;
 import org.openpnp.machine.neoden4.Neoden4Feeder;
 import org.openpnp.machine.neoden4.Neoden4Signaler;
 import org.openpnp.machine.neoden4.Neoden4SwitcherCamera;
+import org.openpnp.machine.pandaplacer.BambooFeederAutoVision;
 import org.openpnp.machine.photon.PhotonFeeder;
 import org.openpnp.machine.rapidplacer.RapidFeeder;
 import org.openpnp.machine.reference.actuator.ThermistorToLinearSensorActuator;
@@ -153,6 +154,9 @@ public class ReferenceMachine extends AbstractMachine {
 
     @Element(required = false)
     private boolean poolScriptingEngines = false;
+
+    @Element(required = false)
+    private boolean autoLoadMostRecentJob = false;
 
     @Element(required = false)
     private Solutions solutions = new Solutions();
@@ -343,7 +347,14 @@ public class ReferenceMachine extends AbstractMachine {
         this.poolScriptingEngines = poolScriptingEngines;
     }
 
+    public boolean isAutoLoadMostRecentJob() {
+        return autoLoadMostRecentJob;
+    }
 
+    public void setAutoLoadMostRecentJob(boolean autoLoadMostRecentJob) {
+        this.autoLoadMostRecentJob = autoLoadMostRecentJob;
+    }
+    
     @Override
     public Wizard getConfigurationWizard() {
         return new ReferenceMachineConfigurationWizard(this);
@@ -437,6 +448,7 @@ public class ReferenceMachine extends AbstractMachine {
         l.add(RapidFeeder.class);
         l.add(Neoden4Feeder.class);
         l.add(PhotonFeeder.class);
+        l.add(BambooFeederAutoVision.class);
         l.addAll(registeredFeederClasses);
         return l;
     }

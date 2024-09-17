@@ -454,12 +454,21 @@ public class JobPanel extends JPanel {
         loadRecentJobs();
 
         Configuration.get().addListener(new ConfigurationListener.Adapter() {
+            // FYI: this listener is executed asynchronously
             public void configurationComplete(Configuration configuration) throws Exception {
                 Machine machine = configuration.getMachine();
 
                 machine.addListener(machineListener);
 
                 machine.getPnpJobProcessor().addTextStatusListener(textStatusListener);
+
+                if (machine.isAutoLoadMostRecentJob()) {
+                    // try to load the most recent job
+                    if (recentJobs.size() > 0) {
+                        File file = recentJobs.get(0);
+                        loadJobExec(file);
+                    }
+                }
 
                 // Create an empty Job if one is not loaded
                 if (getJob() == null) {
@@ -837,10 +846,7 @@ public class JobPanel extends JPanel {
                     return;
                 }
                 File file = new File(new File(fileDialog.getDirectory()), fileDialog.getFile());
-                Job job = configuration.loadJob(file);
-                setJob(job);
-                addRecentJob(file);
-                mainFrame.getFeedersTab().updateView();
+                loadJobExec(file);
             }
             catch (Exception e) {
                 e.printStackTrace();
@@ -995,14 +1001,16 @@ public class JobPanel extends JPanel {
                 }
             }
             
-            MessageBoxes.errorBox(getTopLevelAncestor(), 
-                    Translations.getString("JobPanel.JobRun.Error.ErrorBox.Title"), t.getMessage()); //$NON-NLS-1$
+            // update the state before showing the error to allow exceptions with continuations to change it
             if (state == State.Running || state == State.Pausing) {
                 setState(State.Paused);
             }
             else if (state == State.Stopping) {
                 setState(State.Stopped);
             }
+            
+            // call showError() to support exceptions with continuation
+            UiUtils.showError(getTopLevelAncestor(), Translations.getString("JobPanel.JobRun.Error.ErrorBox.Title"), t); //$NON-NLS-1$
         });
     }
 
@@ -1016,6 +1024,16 @@ public class JobPanel extends JPanel {
             }
             setState(State.Stopped);
         });
+    }
+    
+    // resume a job that's currently in state Paused - used to continue after a manual nozzle tip change from within the JobProcessor
+    public void jobResume() {
+        if (state == State.Paused) {
+            setState(State.Running);
+            jobRun();
+        } else {
+            Logger.debug("Can't resume, job not in Paused state.");
+        }
     }
     
     public final Action startPauseResumeJobAction = new AbstractAction() {
@@ -1639,10 +1657,7 @@ public class JobPanel extends JPanel {
                 return;
             }
             try {
-                Job job = configuration.loadJob(file);
-                setJob(job);
-                addRecentJob(file);
-                mainFrame.getFeedersTab().updateView();
+                loadJobExec(file);
             }
             catch (Exception e) {
                 e.printStackTrace();
@@ -1650,6 +1665,19 @@ public class JobPanel extends JPanel {
                         Translations.getString("JobPanel.Action.Job.RecentJobs.ErrorBox.Title"), e.getMessage()); //$NON-NLS-1$
             }
         }
+    }
+
+    /**
+     * Perform all action required to load a job from a given file
+     * 
+     * @param file job to load
+     * @throws Exception
+     */
+    private void loadJobExec(File file) throws Exception {
+        Job job = configuration.loadJob(file);
+        setJob(job);
+        addRecentJob(file);
+        mainFrame.getFeedersTab().updateView();
     }
 
     private final MachineListener machineListener = new MachineListener.Adapter() {

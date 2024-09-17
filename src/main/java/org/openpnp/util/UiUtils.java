@@ -33,6 +33,29 @@ public class UiUtils {
     }
 
     /**
+     * This extends the exception class by allowing to specify a task to be executed once the user has agreed.
+     */
+    public static class ExceptionWithContinuation extends Exception {
+        private static final long serialVersionUID = 1L;
+    
+        protected Thrunnable continuation = null;
+        
+        public ExceptionWithContinuation(Throwable cause, Thrunnable continuation) {
+            super(cause.getMessage(), cause);
+            this.continuation = continuation;
+        }
+        
+        public ExceptionWithContinuation(String message, Thrunnable continuation) {
+            super(message, null);
+            this.continuation = continuation;
+        }
+        
+        public Thrunnable getContinuation() {
+            return continuation;
+        }
+    }
+
+    /**
      * Shortcut for submitMachineTask(Callable) which uses a Thrunnable instead. This allows for
      * simple tasks that may throw an Exception but return nothing.
      * 
@@ -64,18 +87,61 @@ public class UiUtils {
 
     /**
      * Show an error using a message box, if the GUI is present, otherwise just log the error.
+     * @param parent
+     * @param title
      * @param t
      */
-    public static void showError(Throwable t) {
-        if (MainFrame.get() != null) {
-            MessageBoxes.errorBox(MainFrame.get(), "Error", t);
+    public static void showError(Component parent, String title, Throwable t) {
+        
+        // Go through all causes, creating a combined continuation
+        Thrunnable combinedContinuation = null;
+        for (Throwable cause = t; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ExceptionWithContinuation) {
+                Thrunnable continuation = ((ExceptionWithContinuation)cause).getContinuation();
+                if (continuation != null) {
+                    if (combinedContinuation == null) {
+                        combinedContinuation = continuation; // just take the first one
+                    } else {
+                        final Thrunnable outerCombinedContinuation = combinedContinuation;
+                        combinedContinuation = (() -> { 
+                            // combine the two
+                            try {
+                                continuation.thrun(); // inner first
+                            }
+                            catch (ExceptionWithContinuation e) {
+                                throw new ExceptionWithContinuation(e, () -> {
+                                    outerCombinedContinuation.thrun(); // requeue outer, in case of exception
+                                });
+                            }
+                            outerCombinedContinuation.thrun(); // outer
+                        });
+                    }
+                }
+            }
+        }
+
+        if (parent != null) {
+            boolean haveContinuations = combinedContinuation != null;
+            boolean execContinuations = MessageBoxes.errorBox(parent, title, t, haveContinuations);
+
+            // execution continuation, if user agrees
+            if (haveContinuations && execContinuations) {
+                submitUiMachineTask(combinedContinuation);
+            }
         }
         else {
             Logger.error(t);
         }
     }
 
-
+    /**
+     * Show an error using a message box. This version provides the simplified interface where the
+     * title is fixed to "Error" and the parent is the main frame.
+     */
+    public static void showError(Throwable t) {
+        showError(MainFrame.get(), "Error", t);
+    }
+    
     /**
      * Functional version of Machine.submit which guarantees that the the onSuccess and onFailure
      * handlers will be run on the Swing event thread.
