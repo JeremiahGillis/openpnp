@@ -248,12 +248,7 @@ public class BoardPlacementsPanel extends JPanel {
                                     selectedComponent == mainFrame.getBoardsTab())
                             && configuration.getTablesLinked() == TablesLinked.Linked) {
                         Part selectedPart = getSelection().getPart();
-                        mainFrame.getPartsTab().selectPartInTable(selectedPart);
-                        if (selectedPart != null) {
-                            mainFrame.getPackagesTab().selectPackageInTable(selectedPart.getPackage());
-                        }
-                        mainFrame.getFeedersTab().selectFeederForPart(selectedPart);
-                        mainFrame.getVisionSettingsTab().selectVisionSettingsInTable(selectedPart);
+                        mainFrame.getPartsTab().selectPartInTableAndUpdateLinks(selectedPart);
                     }
                 }
             }
@@ -656,7 +651,7 @@ public class BoardPlacementsPanel extends JPanel {
         @Override
         public void actionPerformed(ActionEvent arg0) {
             if (boardViewer == null) {
-                boardViewer = new PlacementsHolderLocationViewerDialog(new BoardLocation(board), false);
+                boardViewer = new PlacementsHolderLocationViewerDialog(new BoardLocation(board), false, null);
                 boardViewer.addWindowListener(new WindowAdapter() {
                     @Override
                     public void windowClosing(WindowEvent e) {

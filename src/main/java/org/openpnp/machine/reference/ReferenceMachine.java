@@ -48,6 +48,7 @@ import org.openpnp.machine.reference.axis.ReferenceControllerAxis;
 import org.openpnp.machine.reference.axis.ReferenceLinearTransformAxis;
 import org.openpnp.machine.reference.axis.ReferenceMappedAxis;
 import org.openpnp.machine.reference.axis.ReferenceVirtualAxis;
+import org.openpnp.machine.reference.camera.GstreamerCamera;
 import org.openpnp.machine.reference.camera.ImageCamera;
 import org.openpnp.machine.reference.camera.MjpgCaptureCamera;
 import org.openpnp.machine.reference.camera.OnvifIPCamera;
@@ -466,6 +467,7 @@ public class ReferenceMachine extends AbstractMachine {
         l.add(SwitcherCamera.class);
         l.add(SimulatedUpCamera.class);
         l.add(MjpgCaptureCamera.class);
+        l.add(GstreamerCamera.class);
         return l;
     }
 
@@ -530,8 +532,8 @@ public class ReferenceMachine extends AbstractMachine {
         }
 
         getMotionPlanner().home();
+        Configuration.get().getScripting().on("Machine.AfterDriverHoming", null);
         super.home();
-
         Configuration.get().getScripting().on("Machine.AfterHoming", null);
 
         // if homing went well, set machine homed-flag true

@@ -75,6 +75,7 @@ import org.openpnp.events.PlacementsHolderLocationSelectedEvent;
 import org.openpnp.events.JobLoadedEvent;
 import org.openpnp.events.PlacementSelectedEvent;
 import org.openpnp.events.PlacementsHolderLocationChangedEvent;
+import org.openpnp.gui.JobPanel.OpenRecentJobAction;
 import org.openpnp.gui.components.AutoSelectTextTable;
 import org.openpnp.gui.components.ExistingBoardOrPanelDialog;
 import org.openpnp.gui.processes.MultiPlacementBoardLocationProcess;
@@ -115,6 +116,7 @@ import org.openpnp.spi.JobProcessor.TextStatusListener;
 import org.openpnp.spi.Machine;
 import org.openpnp.spi.MachineListener;
 import org.openpnp.spi.MotionPlanner;
+import org.openpnp.spi.Nozzle;
 import org.openpnp.util.MovableUtils;
 import org.openpnp.util.UiUtils;
 import org.pmw.tinylog.Logger;
@@ -341,6 +343,9 @@ public class JobPanel extends JPanel {
                             }
                         }
                         MainFrame.get().updateMenuState(JobPanel.this);
+                        if (jobViewer != null) {
+                            jobViewer.setPlacementsHolder(job.getRootPanelLocation().getPlacementsHolder(), getSelections());
+                        }
                     }
                 });
 
@@ -568,7 +573,7 @@ public class JobPanel extends JPanel {
         updateJobActions();
         jobPlacementsPanel.updateActivePlacements();
         if (jobViewer != null) {
-            jobViewer.setPlacementsHolder(job.getRootPanelLocation().getPlacementsHolder());
+            jobViewer.setPlacementsHolder(job.getRootPanelLocation().getPlacementsHolder(), getSelections());
         }
         Configuration.get().getBus().post(new JobLoadedEvent(job));
     }
@@ -960,45 +965,8 @@ public class JobPanel extends JPanel {
              */
             if (t instanceof JobProcessorException) {
                 JobProcessorException jpe = (JobProcessorException)t;
-                Object source = jpe.getSource();
-                
-                // decode the source of the exception and try to select as much as possible
-                if (source instanceof BoardLocation) {
-                    BoardLocation b = (BoardLocation)source;
-                    // select the board
-                    Helpers.selectObjectTableRow(jobTable, b);
-                    // focus the job tab
-                    MainFrame.get().getTabs().setSelectedComponent(MainFrame.get().getJobTab());
-                } else if (source instanceof Placement) {
-                    Placement p = (Placement)source;
-
-                    // select the board this placement belongs to
-                    for (BoardLocation boardLocation : job.getBoardLocations()) {
-                        if (boardLocation.getBoard().getPlacements().contains(p)) {
-                            // this is the board, that contains the placement that caused the error
-                            Helpers.selectObjectTableRow(jobTable, boardLocation);
-                        }
-                    }
-
-                    // select the placement itself
-                    Helpers.selectObjectTableRow(jobPlacementsPanel.getTable(), p);
-                    // focus the job tab
-                    MainFrame.get().getTabs().setSelectedComponent(MainFrame.get().getJobTab());
-                } else if (source instanceof Part) {
-                    Part p = (Part)source;
-                    // select part in parts tab
-                    MainFrame.get().getPartsTab().selectPartInTable(p);
-                    // focus the parts tab
-                    MainFrame.get().getTabs().setSelectedComponent(MainFrame.get().getPartsTab());
-                } else if (source instanceof Feeder) {
-                    Feeder f = (Feeder)source;
-                    // select the feeder in the feeders tab
-                    MainFrame.get().getFeedersTab().selectFeederInTable(f);
-                    // focus the feeder tab
-                    MainFrame.get().getTabs().setSelectedComponent(MainFrame.get().getFeedersTab());
-                } else {
-                    Logger.debug("Exception contains an unsupported source: {}", source.getClass());
-                }
+                selectJobProcessorExceptionSource(jpe.getSecondarySource(),false);
+                selectJobProcessorExceptionSource(jpe.getSource(),true);
             }
             
             // update the state before showing the error to allow exceptions with continuations to change it
@@ -1012,6 +980,67 @@ public class JobPanel extends JPanel {
             // call showError() to support exceptions with continuation
             UiUtils.showError(getTopLevelAncestor(), Translations.getString("JobPanel.JobRun.Error.ErrorBox.Title"), t); //$NON-NLS-1$
         });
+    }
+
+    private void selectJobProcessorExceptionSource(Object source,boolean primary) {
+        // decode the source of the exception and try to select as much as possible
+        if (source==null)
+        {
+        }
+        else if (source instanceof BoardLocation) {
+            BoardLocation b = (BoardLocation)source;
+            Logger.debug("Exception source is board location: {}", b);
+            // select the board
+            Helpers.selectObjectTableRow(jobTable, b);
+            if(primary) {
+                // focus the job tab
+                MainFrame.get().getTabs().setSelectedComponent(MainFrame.get().getJobTab());
+            }
+        } else if (source instanceof Placement) {
+            Placement p = (Placement)source;
+            Logger.debug("Exception source is placement: {}", p);
+
+            // select the board this placement belongs to
+            for (BoardLocation boardLocation : job.getBoardLocations()) {
+                if (boardLocation.getBoard().getPlacements().contains(p)) {
+                    // this is the board, that contains the placement that caused the error
+                    Helpers.selectObjectTableRow(jobTable, boardLocation);
+                }
+            }
+
+            // select the placement itself
+            Helpers.selectObjectTableRow(jobPlacementsPanel.getTable(), p);
+            if(primary) {
+                // focus the job tab
+                MainFrame.get().getTabs().setSelectedComponent(MainFrame.get().getJobTab());
+            }
+        } else if (source instanceof Part) {
+            Part p = (Part)source;
+            Logger.debug("Exception source is part: {}", p);
+            // select part in parts tab
+            MainFrame.get().getPartsTab().selectPartInTableAndUpdateLinks(p);
+            if(primary) {
+                // focus the parts tab
+                MainFrame.get().getTabs().setSelectedComponent(MainFrame.get().getPartsTab());
+            }
+        } else if (source instanceof Feeder) {
+            Feeder f = (Feeder)source;
+            Logger.debug("Exception source is feeder: {}", f);
+            // select the feeder in the feeders tab
+            MainFrame.get().getFeedersTab().selectFeederInTable(f);
+            if(primary) {
+                // focus the feeder tab
+                MainFrame.get().getTabs().setSelectedComponent(MainFrame.get().getFeedersTab());
+            }
+        } else if (source instanceof Nozzle) {
+            Nozzle n = (Nozzle)source;
+            Logger.debug("Exception source is nozzle: {}", n);
+            // select the nozzle and part in the table
+            MainFrame.get().getMachineControls().setSelectedTool(n);
+            MainFrame.get().getPartsTab().selectPartInTableAndUpdateLinks(n.getPart());
+        } else {
+            Logger.debug("Exception contains an unsupported source: {}", source.getClass());
+        }
     }
 
     private void jobAbort() {
@@ -1500,9 +1529,9 @@ public class JobPanel extends JPanel {
         }
 
         @Override
-        public void actionPerformed(ActionEvent arg0) {
+        public void actionPerformed(ActionEvent arg0) {            
             if (jobViewer == null) {
-                jobViewer = new PlacementsHolderLocationViewerDialog(job.getRootPanelLocation(), true);
+                jobViewer = new PlacementsHolderLocationViewerDialog(job.getRootPanelLocation(), true, getSelections());
                 jobViewer.addWindowListener(new WindowAdapter() {
                     @Override
                     public void windowClosing(WindowEvent e) {
@@ -1511,6 +1540,7 @@ public class JobPanel extends JPanel {
                 });
             }
             else {
+                jobViewer.setPlacementsHolder(job.getRootPanelLocation().getPlacementsHolder(), getSelections());
                 jobViewer.setExtendedState(Frame.NORMAL);
             }
             jobViewer.setVisible(true);
